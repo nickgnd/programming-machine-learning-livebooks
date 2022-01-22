@@ -1,0 +1,232 @@
+# 03_gradient
+
+## Install dependencies
+
+```elixir
+Mix.install([
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.5.0"}
+])
+```
+
+## Read the data
+
+```elixir
+%{pizzas: pizzas, reservations: reservations} =
+  File.read!("03_gradient/pizza.txt")
+  |> String.split("\n", trim: true)
+  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
+  |> Enum.slice(1..-1)
+  |> Enum.reduce(%{reservations: [], pizzas: []}, fn [res, piz],
+                                                     %{reservations: reservations, pizzas: pizzas} ->
+    %{
+      reservations: reservations ++ [String.to_integer(res)],
+      pizzas: pizzas ++ [String.to_integer(piz)]
+    }
+  end)
+```
+
+## Linear regression with bias
+
+☝️ From chapter 2
+
+```elixir
+defmodule C2.LinearRegressionWithBias do
+  @doc """
+  Returns a list of predictions.
+  """
+  def predict([item | rest], weight, bias) do
+    [predict(item, weight, bias) | predict(rest, weight, bias)]
+  end
+
+  def predict([], _weight, _bias), do: []
+
+  # The function predicts the pizzas from the reservations.
+  # To be more precise, it takes the input variable, the weight
+  # and the bias, and it uses them to calculate ŷ.
+  def predict(x, weight, bias), do: x * weight + bias
+
+  @doc """
+  Returns the mean squared error.
+  """
+  def loss(x, y, weight, bias) when is_list(x) and is_list(y) do
+    predictions = predict(x, weight, bias)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+    squared_error = square(errors)
+    avg(squared_error)
+  end
+
+  def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
+    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn _i, %{weight: w, bias: b} = acc ->
+      current_loss = loss(x, y, w, b)
+
+      cond do
+        loss(x, y, w + lr, b) < current_loss -> %{acc | weight: w + lr}
+        loss(x, y, w - lr, b) < current_loss -> %{acc | weight: w - lr}
+        loss(x, y, w, b + lr) < current_loss -> %{acc | bias: b + lr}
+        loss(x, y, w, b - lr) < current_loss -> %{acc | bias: b - lr}
+        true -> acc
+      end
+    end)
+  end
+
+  defp square(list) when is_list(list) do
+    for i <- list, do: i * i
+  end
+
+  defp avg(list) when is_list(list) do
+    Enum.sum(list) / length(list)
+  end
+end
+```
+
+### Plot the loss curve
+
+```elixir
+alias VegaLite, as: Vl
+
+# Generate a sequence that will be used as `weigth`
+# From -1 to -4, step 0.1
+weights = Enum.map(-100..400, &(&1 / 100))
+
+# Compute the loss for each weight, with bias=0
+losses = Enum.map(weights, &C2.LinearRegressionWithBias.loss(reservations, pizzas, &1, 0))
+
+# Get the min loss index
+min_loss_index = Enum.find_index(losses, &(&1 == Enum.min(losses)))
+
+Vl.new(width: 600, height: 400)
+|> Vl.layers([
+  Vl.new()
+  |> Vl.data_from_series(weight: weights, loss: losses)
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "weight", type: :quantitative)
+  |> Vl.encode_field(:y, "loss", type: :quantitative),
+  Vl.new()
+  |> Vl.data_from_series(
+    weight: [Enum.at(weights, min_loss_index)],
+    min_loss: [Enum.at(losses, min_loss_index)]
+  )
+  |> Vl.mark(:circle, tooltip: true, size: "100", color: "red")
+  |> Vl.encode_field(:x, "weight", type: :quantitative)
+  |> Vl.encode_field(:y, "min_loss", type: :quantitative, title: "loss")
+])
+```
+
+## Gradient descent without bias
+
+```elixir
+defmodule C3.LinearRegressionWithoutBias do
+  def predict([item | rest], weight, bias) do
+    [predict(item, weight, bias) | predict(rest, weight, bias)]
+  end
+
+  def predict([], _weight, _bias), do: []
+  def predict(x, weight, bias), do: x * weight + bias
+
+  @doc """
+  Returns the mean squared error.
+  """
+  def loss(x, y, weight, bias) when is_list(x) and is_list(y) do
+    predictions = predict(x, weight, bias)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+    squared_error = square(errors)
+    avg(squared_error)
+  end
+
+  @doc """
+  Returns the derivate of the loss curve
+  """
+  def gradient(x, y, weight) do
+    predictions = predict(x, weight, 0)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+    2 * avg(Enum.zip_with([x, errors], fn [x_item, error] -> x_item * error end))
+  end
+
+  def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
+    Enum.reduce(0..iterations, 0, fn i, weight ->
+      IO.puts("Iteration #{i} => Loss: #{loss(x, y, weight, 0)}")
+      IO.puts("Iteration #{i} => Gradient: #{gradient(x, y, weight)}")
+      weight - gradient(x, y, weight) * lr
+    end)
+  end
+
+  defp square(list) when is_list(list) do
+    for i <- list, do: i * i
+  end
+
+  defp avg(list) when is_list(list) do
+    Enum.sum(list) / length(list)
+  end
+end
+```
+
+### Train the system
+
+```elixir
+weight = C3.LinearRegressionWithoutBias.train(reservations, pizzas, iterations = 100, lr = 0.001)
+```
+
+## Gradient descent with bias
+
+```elixir
+defmodule C3.LinearRegressionWithBias do
+  def predict([item | rest], weight, bias) do
+    [predict(item, weight, bias) | predict(rest, weight, bias)]
+  end
+
+  def predict([], _weight, _bias), do: []
+  def predict(x, weight, bias), do: x * weight + bias
+
+  @doc """
+  Returns the mean squared error.
+  """
+  def loss(x, y, weight, bias) when is_list(x) and is_list(y) do
+    predictions = predict(x, weight, bias)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+    squared_error = square(errors)
+    avg(squared_error)
+  end
+
+  @doc """
+  Returns the derivate of the loss curve
+  """
+  def gradient(x, y, weight, bias) do
+    predictions = predict(x, weight, bias)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+
+    w_gradient = 2 * avg(Enum.zip_with([x, errors], fn [x_item, error] -> x_item * error end))
+    b_gradient = 2 * avg(errors)
+
+    {w_gradient, b_gradient}
+  end
+
+  def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
+    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn _i, %{weight: weight, bias: bias} ->
+      {w_gradient, b_gradient} = gradient(x, y, weight, bias)
+      %{weight: weight - w_gradient * lr, bias: bias - b_gradient * lr}
+    end)
+  end
+
+  defp square(list) when is_list(list) do
+    for i <- list, do: i * i
+  end
+
+  defp avg(list) when is_list(list) do
+    Enum.sum(list) / length(list)
+  end
+end
+```
+
+### Train the system
+
+```elixir
+%{weight: weight, bias: bias} =
+  C3.LinearRegressionWithBias.train(reservations, pizzas, iterations = 20_000, lr = 0.001)
+```
+
+### Predict the number of pizzas
+
+```elixir
+C3.LinearRegressionWithBias.predict(20, weight, bias)
+```
