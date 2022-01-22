@@ -1,0 +1,222 @@
+# 02_first
+
+## Install dependencies
+
+```elixir
+Mix.install([
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.5.0"}
+])
+```
+
+## Read the data
+
+```elixir
+%{pizzas: pizzas, reservations: reservations} =
+  File.read!("02_first/pizza.txt")
+  |> String.split("\n", trim: true)
+  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
+  |> Enum.slice(1..-1)
+  |> Enum.reduce(%{reservations: [], pizzas: []}, fn [res, piz],
+                                                     %{reservations: reservations, pizzas: pizzas} ->
+    %{
+      reservations: reservations ++ [String.to_integer(res)],
+      pizzas: pizzas ++ [String.to_integer(piz)]
+    }
+  end)
+```
+
+### Plot the data
+
+```elixir
+alias VegaLite, as: Vl
+
+# Initialize the specification, optionally with some top-level properties
+Vl.new(width: 600, height: 400)
+|> Vl.data_from_series(reservations: reservations, pizzas: pizzas)
+|> Vl.mark(:point, tooltip: true)
+|> Vl.encode_field(:x, "reservations", type: :quantitative)
+|> Vl.encode_field(:y, "pizzas", type: :quantitative)
+```
+
+## Linear regression
+
+```elixir
+defmodule C2.LinearRegression do
+  @doc """
+  Returns a list of predictions.
+  """
+  def predict([item | rest], weight) do
+    [predict(item, weight) | predict(rest, weight)]
+  end
+
+  def predict([], _weight), do: []
+
+  # The function predicts the pizzas from the reservations.
+  # To be more precise, it takes the input variable and the weight,
+  # and it uses them to calculate ŷ.
+  def predict(x, weight), do: x * weight
+
+  @doc """
+  Returns the mean squared error.
+  """
+  def loss(x, y, weight) when is_list(x) and is_list(y) do
+    predictions = predict(x, weight)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+    squared_error = square(errors)
+    avg(squared_error)
+  end
+
+  def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
+    Enum.reduce(0..iterations, 0, fn _i, w ->
+      current_loss = loss(x, y, w)
+
+      # Commented out to don't freeze the browser
+      # IO.puts("Iteration #{i} => Loss: #{current_loss}")
+
+      cond do
+        loss(x, y, w + lr) < current_loss -> w + lr
+        loss(x, y, w - lr) < current_loss -> w - lr
+        true -> w
+      end
+    end)
+  end
+
+  defp square(list) when is_list(list) do
+    for i <- list, do: i * i
+  end
+
+  defp avg(list) when is_list(list) do
+    Enum.sum(list) / length(list)
+  end
+end
+```
+
+### Train the system
+
+```elixir
+w = C2.LinearRegression.train(reservations, pizzas, iterations = 10_000, lr = 0.01)
+```
+
+### Predict the number of pizzas
+
+```elixir
+C2.LinearRegression.predict(20, w)
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+predictions =
+  0..Enum.max(reservations)
+  |> Enum.map(&C2.LinearRegression.predict(&1, w))
+
+Vl.new(width: 600, height: 400)
+|> Vl.data_from_series(
+  reservations: reservations,
+  pizzas: pizzas,
+  predictions_x: Enum.to_list(0..Enum.max(reservations)),
+  predictions: predictions
+)
+|> Vl.layers([
+  Vl.new()
+  |> Vl.mark(:point, tooltip: true)
+  |> Vl.encode_field(:x, "reservations", type: :quantitative)
+  |> Vl.encode_field(:y, "pizzas", type: :quantitative),
+  Vl.new()
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "predictions_x", type: :quantitative)
+  |> Vl.encode_field(:y, "predictions", type: :quantitative)
+])
+```
+
+## Linear regression with bias
+
+```elixir
+defmodule C2.LinearRegressionWithBias do
+  @doc """
+  Returns a list of predictions.
+  """
+  def predict([item | rest], weight, bias) do
+    [predict(item, weight, bias) | predict(rest, weight, bias)]
+  end
+
+  def predict([], _weight, _bias), do: []
+
+  # The function predicts the pizzas from the reservations.
+  # To be more precise, it takes the input variable, the weight
+  # and the bias, and it uses them to calculate ŷ.
+  def predict(x, weight, bias), do: x * weight + bias
+
+  @doc """
+  Returns the mean squared error.
+  """
+  def loss(x, y, weight, bias) when is_list(x) and is_list(y) do
+    predictions = predict(x, weight, bias)
+    errors = Enum.zip_with([predictions, y], fn [pr, y] -> pr - y end)
+    squared_error = square(errors)
+    avg(squared_error)
+  end
+
+  def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
+    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn _i, %{weight: w, bias: b} = acc ->
+      current_loss = loss(x, y, w, b)
+
+      cond do
+        loss(x, y, w + lr, b) < current_loss -> %{acc | weight: w + lr}
+        loss(x, y, w - lr, b) < current_loss -> %{acc | weight: w - lr}
+        loss(x, y, w, b + lr) < current_loss -> %{acc | bias: b + lr}
+        loss(x, y, w, b - lr) < current_loss -> %{acc | bias: b - lr}
+        true -> acc
+      end
+    end)
+  end
+
+  defp square(list) when is_list(list) do
+    for i <- list, do: i * i
+  end
+
+  defp avg(list) when is_list(list) do
+    Enum.sum(list) / length(list)
+  end
+end
+```
+
+### Train the system
+
+```elixir
+%{weight: w2, bias: bias} =
+  C2.LinearRegressionWithBias.train(reservations, pizzas, iterations = 10_000, lr = 0.01)
+```
+
+### Predict the number of pizzas
+
+```elixir
+C2.LinearRegressionWithBias.predict(20, w2, bias)
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+predictions =
+  0..Enum.max(reservations)
+  |> Enum.map(&C2.LinearRegressionWithBias.predict(&1, w2, bias))
+
+Vl.new(width: 600, height: 400)
+|> Vl.data_from_series(
+  reservations: reservations,
+  pizzas: pizzas,
+  predictions_x: Enum.to_list(0..Enum.max(reservations)),
+  predictions: predictions
+)
+|> Vl.layers([
+  Vl.new()
+  |> Vl.mark(:point, tooltip: true)
+  |> Vl.encode_field(:x, "reservations", type: :quantitative)
+  |> Vl.encode_field(:y, "pizzas", type: :quantitative),
+  Vl.new()
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "predictions_x", type: :quantitative)
+  |> Vl.encode_field(:y, "predictions", type: :quantitative)
+])
+```
