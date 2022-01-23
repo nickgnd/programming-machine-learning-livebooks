@@ -95,7 +95,18 @@ end
 ### Train the system
 
 ```elixir
-w = C2.LinearRegression.train(reservations, pizzas, iterations = 10_000, lr = 0.01)
+iterations = Kino.Input.number("iterations", default: 10_000)
+```
+
+```elixir
+lr = Kino.Input.number("lr (learning rate)", default: 0.01)
+```
+
+```elixir
+iterations = Kino.Input.read(iterations)
+lr = Kino.Input.read(lr)
+
+w = C2.LinearRegression.train(reservations, pizzas, iterations = iterations, lr = lr)
 ```
 
 ### Predict the number of pizzas
@@ -185,6 +196,17 @@ end
 ### Train the system
 
 ```elixir
+iterations = Kino.Input.number("iterations", default: 10_000)
+```
+
+```elixir
+lr = Kino.Input.number("lr (learning rate)", default: 0.01)
+```
+
+```elixir
+iterations = Kino.Input.read(iterations)
+lr = Kino.Input.read(lr)
+
 %{weight: w2, bias: bias} =
   C2.LinearRegressionWithBias.train(reservations, pizzas, iterations = 10_000, lr = 0.01)
 ```
@@ -192,7 +214,13 @@ end
 ### Predict the number of pizzas
 
 ```elixir
-C2.LinearRegressionWithBias.predict(20, w2, bias)
+n_reservations = Kino.Input.number("number of reservations", default: 20)
+```
+
+```elixir
+n = Kino.Input.read(n_reservations)
+
+C2.LinearRegressionWithBias.predict(n, w2, bias)
 ```
 
 ```elixir
