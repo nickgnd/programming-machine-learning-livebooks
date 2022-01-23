@@ -12,17 +12,26 @@ Mix.install([
 ## Read the data
 
 ```elixir
-%{pizzas: pizzas, reservations: reservations} =
+# Read the data from the file, remove the header and return
+# `[%{reservations: integer(), pizzas: integer()}]`
+data =
   File.read!("02_first/pizza.txt")
   |> String.split("\n", trim: true)
-  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
   |> Enum.slice(1..-1)
-  |> Enum.reduce(%{reservations: [], pizzas: []}, fn [res, piz],
-                                                     %{reservations: reservations, pizzas: pizzas} ->
-    %{
-      reservations: reservations ++ [String.to_integer(res)],
-      pizzas: pizzas ++ [String.to_integer(piz)]
-    }
+  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
+  |> Enum.map(fn [r, p] ->
+    %{reservations: String.to_integer(r), pizzas: String.to_integer(p)}
+  end)
+
+Kino.DataTable.new(data)
+```
+
+```elixir
+# Transform the data to unpack the 2 columns `reservations` and
+# `pizzas` into separate arrays called x and y
+%{x: x, y: y} =
+  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
+    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
   end)
 ```
 
@@ -33,7 +42,7 @@ alias VegaLite, as: Vl
 
 # Initialize the specification, optionally with some top-level properties
 Vl.new(width: 600, height: 400)
-|> Vl.data_from_series(reservations: reservations, pizzas: pizzas)
+|> Vl.data_from_series(reservations: x, pizzas: y)
 |> Vl.mark(:point, tooltip: true)
 |> Vl.encode_field(:x, "reservations", type: :quantitative)
 |> Vl.encode_field(:y, "pizzas", type: :quantitative)
@@ -106,7 +115,7 @@ lr = Kino.Input.number("lr (learning rate)", default: 0.01)
 iterations = Kino.Input.read(iterations)
 lr = Kino.Input.read(lr)
 
-w = C2.LinearRegression.train(reservations, pizzas, iterations = iterations, lr = lr)
+w = C2.LinearRegression.train(x, y, iterations = iterations, lr = lr)
 ```
 
 ### Predict the number of pizzas
@@ -119,14 +128,14 @@ C2.LinearRegression.predict(20, w)
 alias VegaLite, as: Vl
 
 predictions =
-  0..Enum.max(reservations)
+  0..Enum.max(x)
   |> Enum.map(&C2.LinearRegression.predict(&1, w))
 
 Vl.new(width: 600, height: 400)
 |> Vl.data_from_series(
-  reservations: reservations,
-  pizzas: pizzas,
-  predictions_x: Enum.to_list(0..Enum.max(reservations)),
+  reservations: x,
+  pizzas: y,
+  predictions_x: Enum.to_list(0..Enum.max(x)),
   predictions: predictions
 )
 |> Vl.layers([
@@ -208,7 +217,7 @@ iterations = Kino.Input.read(iterations)
 lr = Kino.Input.read(lr)
 
 %{weight: w2, bias: bias} =
-  C2.LinearRegressionWithBias.train(reservations, pizzas, iterations = 10_000, lr = 0.01)
+  C2.LinearRegressionWithBias.train(x, y, iterations = 10_000, lr = 0.01)
 ```
 
 ### Predict the number of pizzas
@@ -227,14 +236,14 @@ C2.LinearRegressionWithBias.predict(n, w2, bias)
 alias VegaLite, as: Vl
 
 predictions =
-  0..Enum.max(reservations)
+  0..Enum.max(x)
   |> Enum.map(&C2.LinearRegressionWithBias.predict(&1, w2, bias))
 
 Vl.new(width: 600, height: 400)
 |> Vl.data_from_series(
-  reservations: reservations,
-  pizzas: pizzas,
-  predictions_x: Enum.to_list(0..Enum.max(reservations)),
+  reservations: x,
+  pizzas: y,
+  predictions_x: Enum.to_list(0..Enum.max(x)),
   predictions: predictions
 )
 |> Vl.layers([

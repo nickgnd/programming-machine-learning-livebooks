@@ -12,17 +12,24 @@ Mix.install([
 ## Read the data
 
 ```elixir
-%{pizzas: pizzas, reservations: reservations} =
+# Read the data from the file, remove the header and return
+# `[%{reservations: integer(), pizzas: integer()}]`
+data =
   File.read!("03_gradient/pizza.txt")
   |> String.split("\n", trim: true)
-  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
   |> Enum.slice(1..-1)
-  |> Enum.reduce(%{reservations: [], pizzas: []}, fn [res, piz],
-                                                     %{reservations: reservations, pizzas: pizzas} ->
-    %{
-      reservations: reservations ++ [String.to_integer(res)],
-      pizzas: pizzas ++ [String.to_integer(piz)]
-    }
+  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
+  |> Enum.map(fn [r, p] -> %{reservations: String.to_integer(r), pizzas: String.to_integer(p)} end)
+
+Kino.DataTable.new(data)
+```
+
+```elixir
+# Transform the data to unpack the 2 columns `reservations` and
+# `pizzas` into separate arrays called x and y
+%{x: x, y: y} =
+  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
+    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
   end)
 ```
 
@@ -90,7 +97,7 @@ alias VegaLite, as: Vl
 weights = Enum.map(-100..400, &(&1 / 100))
 
 # Compute the loss for each weight, with bias=0
-losses = Enum.map(weights, &C2.LinearRegressionWithBias.loss(reservations, pizzas, &1, 0))
+losses = Enum.map(weights, &C2.LinearRegressionWithBias.loss(x, y, &1, 0))
 
 # Get the min loss index
 min_loss_index = Enum.find_index(losses, &(&1 == Enum.min(losses)))
@@ -175,7 +182,7 @@ lr = Kino.Input.number("lr (learning rate)", default: 0.001)
 iterations = Kino.Input.read(iterations)
 lr = Kino.Input.read(lr)
 
-weight = C3.LinearRegressionWithoutBias.train(reservations, pizzas, iterations = 100, lr = 0.001)
+weight = C3.LinearRegressionWithoutBias.train(x, y, iterations = 100, lr = 0.001)
 ```
 
 ## Gradient descent with bias
@@ -244,7 +251,7 @@ iterations = Kino.Input.read(iterations)
 lr = Kino.Input.read(lr)
 
 %{weight: weight, bias: bias} =
-  C3.LinearRegressionWithBias.train(reservations, pizzas, iterations = iterations, lr = lr)
+  C3.LinearRegressionWithBias.train(x, y, iterations = iterations, lr = lr)
 ```
 
 ### Predict the number of pizzas
