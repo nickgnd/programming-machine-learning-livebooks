@@ -1,0 +1,237 @@
+# 04_hyperspace
+
+## Install dependencies
+
+```elixir
+Mix.install([
+  {:nx, "~> 0.1"},
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.5.0"}
+])
+```
+
+## Read the data
+
+```elixir
+# Read the data from the file, remove the header and return
+# `[%{reservations: integer(), temperature: integer(), tourists: integer(), pizzas: integer()}]`
+data =
+  File.read!("04_hyperspace/pizza_3_vars.txt")
+  |> String.split("\n", trim: true)
+  |> Enum.slice(1..-1)
+  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
+  |> Enum.map(fn [r, temp, tour, p] ->
+    %{
+      reservations: String.to_integer(r),
+      temperature: String.to_integer(temp),
+      tourists: String.to_integer(tour),
+      pizzas: String.to_integer(p)
+    }
+  end)
+
+Kino.DataTable.new(data, keys: [:reservations, :temperature, :tourists, :pizzas])
+```
+
+```elixir
+# Transform the data to unpack the 4 columns `reservations`,
+# `temperature`, `tourists` and `pizzas` into separate arrays
+# called x1, x2, x3 and y
+%{x1: x1, x2: x2, x3: x3, y: y} =
+  Enum.reduce(data, %{x1: [], x2: [], x3: [], y: []}, fn item, %{x1: x1, x2: x2, x3: x3, y: y} ->
+    %{
+      x1: x1 ++ [item.reservations],
+      x2: x2 ++ [item.temperature],
+      x3: x3 ++ [item.tourists],
+      y: y ++ [item.pizzas]
+    }
+  end)
+```
+
+### Let's build the matrix x for input variables
+
+```elixir
+# Same of `numpy.column_stack((x1, x2, x3))` used in the book
+x =
+  [x1, x2, x3]
+  |> Nx.tensor()
+  |> Nx.transpose()
+```
+
+```elixir
+# Inspect x shape
+x.shape()
+```
+
+```elixir
+# Get the first 2 rows of x
+x[0..1]
+```
+
+### And reshape y into a matrix for labels
+
+```elixir
+# Same of `y.reshape(-1, 1)` used in the book
+y = Nx.tensor([y]) |> Nx.transpose()
+```
+
+```elixir
+# Inspect y shape
+y.shape()
+```
+
+## Multiple Linear Regression
+
+```elixir
+defmodule C4.MultipleLinearRegression do
+  @doc """
+  Return the prediction tensor given the inputs and weight.
+  """
+  @spec predict(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  def predict(x, weight), do: Nx.dot(x, weight)
+
+  @doc """
+  Returns the mean squared error.
+  """
+  @spec loss(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: float()
+  def loss(x, y, weight) do
+    predictions = predict(x, weight)
+    errors = Nx.subtract(predictions, y)
+    squared_error = Nx.power(errors, 2)
+
+    squared_error
+    |> Nx.mean()
+    |> Nx.to_number()
+  end
+
+  @doc """
+  Returns the derivate of the loss curve.
+  """
+  @spec gradient(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  def gradient(x, y, weight) do
+    # in python:
+    # 2 * np.matmul(X.T, (predict(X, w) - Y)) / X.shape[0]
+
+    predictions = predict(x, weight)
+    errors = Nx.subtract(predictions, y)
+    n_examples = elem(Nx.shape(x), 0)
+
+    Nx.transpose(x)
+    |> Nx.dot(errors)
+    |> Nx.multiply(2)
+    |> Nx.divide(n_examples)
+  end
+
+  @doc """
+  Computes the weight by training the system
+  with the given inputs and labels, by iterating
+  over the examples the specified number of times.
+  """
+  @spec train(
+          inputs :: Nx.Tensor.t(),
+          labels :: Nx.Tensor.t(),
+          iterations :: integer(),
+          learning_rate :: float()
+        ) :: weight :: Nx.Tensor.t()
+  def train(x, y, iterations, lr) do
+    Enum.reduce(0..iterations, init_weight(x), fn _i, weight ->
+      Nx.subtract(weight, Nx.multiply(gradient(x, y, weight), lr))
+    end)
+  end
+
+  # Given n elements it returns a tensor
+  # with this shape {n, 1}, each element
+  # initialized to 0
+  defp init_weight(x) do
+    n_elements = elem(Nx.shape(x), 1)
+    Nx.tile(Nx.tensor([0]), [n_elements, 1])
+  end
+end
+```
+
+### Train the system
+
+```elixir
+iterations = Kino.Input.number("iterations", default: 100_000)
+```
+
+```elixir
+lr = Kino.Input.number("lr (learning rate)", default: 0.001)
+```
+
+```elixir
+iterations = Kino.Input.read(iterations)
+lr = Kino.Input.read(lr)
+
+weight = C4.MultipleLinearRegression.train(x, y, iterations, lr)
+```
+
+```elixir
+loss = C4.MultipleLinearRegression.loss(x, y, weight)
+```
+
+## Bye bye, bias 👋
+
+Quoting the book:
+
+> The bias is just the **weight** of an input variable that happens to have the constant value 1.
+
+Basically, this expression:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+ŷ = x1 * w1 + x2 * w2 + x3 * w3 + b
+```
+
+can be rewritten as:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+ŷ = x1 * w1 + x2 * w2 + x3 * w3 + x0 * b
+```
+
+where `x0` is a constant matrix of value 1 with `{30, 1}` shape.
+
+```elixir
+x0 = List.duplicate(1, length(x1))
+```
+
+And now let's add the new input `x0` to the `x` tensor.
+
+```elixir
+x =
+  [x0, x1, x2, x3]
+  |> Nx.tensor()
+  |> Nx.transpose()
+```
+
+```elixir
+weight = C4.MultipleLinearRegression.train(x, y, iterations, lr)
+```
+
+```elixir
+loss = C4.MultipleLinearRegression.loss(x, y, weight)
+```
+
+A few predictions
+
+```elixir
+Enum.map(0..4, fn i ->
+  prediction =
+    x[i]
+    |> C4.MultipleLinearRegression.predict(weight)
+    |> Nx.squeeze()
+    |> Nx.to_number()
+    |> Float.round(4)
+
+  label =
+    y[i]
+    |> Nx.squeeze()
+    |> Nx.to_number()
+
+  IO.inspect("x[#{i}] -> #{prediction} (label: #{label})")
+end)
+
+Kino.nothing()
+```
