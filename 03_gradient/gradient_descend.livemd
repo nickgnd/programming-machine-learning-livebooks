@@ -93,7 +93,7 @@ end
 alias VegaLite, as: Vl
 
 # Generate a sequence that will be used as `weigth`
-# From -1 to -4, step 0.1
+# From -1 to -4, step 0.01
 weights = Enum.map(-100..400, &(&1 / 100))
 
 # Compute the loss for each weight, with bias=0
