@@ -1,0 +1,297 @@
+# MNIST
+
+## Install dependencies
+
+```elixir
+Mix.install([
+  {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
+  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.5.0"}
+])
+
+# Set the backend
+Nx.Defn.global_default_options(compiler: EXLA)
+```
+
+## Load MNIST images
+
+```elixir
+defmodule C6.MNIST do
+  @moduledoc """
+  Use this Module to load the MNIST database (test, train, and labels).
+
+  MNIST dataset specifications can be found here: http://yann.lecun.com/exdb/mnist/
+  """
+
+  @train_images_filename "./data/mnist/train-images-idx3-ubyte.gz"
+  @test_images_filename "./data/mnist/t10k-images-idx3-ubyte.gz"
+  @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
+  @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
+
+  @type t :: %__MODULE__{
+          x_train: Nx.Tensor.t(),
+          x_test: Nx.Tensor.t(),
+          y_train: Nx.Tensor.t(),
+          y_test: Nx.Tensor.t()
+        }
+  defstruct [:x_train, :x_test, :y_train, :y_test]
+
+  @doc """
+  Load the MNIST database and return the train and test images.
+  """
+  @spec load() :: t()
+  def load() do
+    %__MODULE__{
+      # 60000 images, each 785 elements (1 bias + 28 * 28 pixels)
+      x_train: prepend_bias(load_images(@train_images_filename)),
+      # 10000 images, each 785 elements, with the same structure as `x_train`
+      x_test: prepend_bias(load_images(@test_images_filename)),
+      # 60000 labels
+      y_train: load_labels(@train_labels_filename),
+      # 10000 labels, with the same encoding as `y_train`
+      y_test: load_labels(@test_labels_filename)
+    }
+  end
+
+  @doc """
+  Encode the five in the given label matrix by
+  converting all 5s to 1, and everything else to 0.
+  """
+  @spec encode_fives(y :: Nx.Tensor.t()) :: Nx.Tensor.t()
+  def encode_fives(y) do
+    Nx.equal(y, 5)
+  end
+
+  @doc """
+  Load the MNIST labels from the given file
+  and return a matrix.
+  """
+  @spec load_labels(Path.t()) :: Nx.Tensor.t()
+  def load_labels(filename) do
+    # Open and unzip the file of labels
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_labels::32, labels::binary>> = :zlib.gunzip(binary)
+
+      # Read all the labels into an array of bytes
+      all_labels = :binary.bin_to_list(labels)
+
+      # Reshape the list of labels into a one-column matrix
+      Nx.reshape(Nx.tensor(all_labels), {n_labels, 1})
+    end
+  end
+
+  @doc """
+  Load the MNIST images from the given file
+  and return a matrix.
+  """
+  @spec load_images(Path.t()) :: Nx.Tensor.t()
+  def load_images(filename) do
+    # Open and unzip the file of images
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_images::32, n_rows::32, n_cols::32, images::binary>> = :zlib.gunzip(binary)
+
+      # Read all the pixels into an array of bytes
+      # in python: `all_pixels = np.frombuffer(f.read(), dtype=np.uint8)`
+      all_pixels = :binary.bin_to_list(images)
+
+      # Reshape the pixels into a matrix where each line is an image
+      # in python: `all_pixels.reshape(n_images, columns * rows)`
+      Nx.reshape(Nx.tensor(all_pixels), {n_images, n_cols * n_rows})
+    end
+  end
+
+  @doc """
+  Prepend a the bias, an extra column of 1s, to
+  the given tensor.
+  """
+  @spec prepend_bias(Nx.Tensor.t()) :: Nx.Tensor.t()
+  def prepend_bias(x) do
+    bias = List.duplicate(1, elem(Nx.shape(x), 0))
+
+    bias_tensor =
+      [bias]
+      |> Nx.tensor()
+      |> Nx.transpose()
+
+    # Insert a column of 1s in the position 0 of x.
+    # ("axis: 1" stands for: "insert a column, not a row")
+    # in python: `np.insert(X, 0, 1, axis=1)`
+    Nx.concatenate([bias_tensor, x], axis: 1)
+  end
+end
+```
+
+```elixir
+# Unzips and decodes images from MNIST’s binary files.
+filename = "./data/mnist/train-images-idx3-ubyte.gz"
+images_tensor = C6.MNIST.load_images(filename)
+```
+
+```elixir
+# Add the bias to the images tensor
+images_tensor_with_bias = C6.MNIST.prepend_bias(images_tensor)
+```
+
+```elixir
+# Use the public API to get train and test images
+%{x_train: x_train, x_test: x_test, y_train: y_train, y_test: y_test} = data = C6.MNIST.load()
+```
+
+## Train and test the system
+
+Use the classifier developed in chapter 5 to train and test the system.
+
+```elixir
+defmodule C5.Classifier do
+  import Nx.Defn
+
+  @doc """
+  A sigmoid function is a mathematical function having
+  a characteristic "S"-shaped curve or sigmoid curve.
+
+  A sigmoid function:
+  - is monotonic
+  - has no local minimums
+  - has a non-negative derivative for each point
+
+  More here https://en.wikipedia.org/wiki/Sigmoid_function
+  """
+  @spec sigmoid(Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn sigmoid(z) do
+    Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
+  end
+
+  @doc """
+  Return the prediction tensor ŷ given the inputs and weight.
+  The returned tensor is a matrix with the same dimensions as
+  the weighted sum: one row per example, and one column.
+  Each element in the matrix is now constrained between 0 and 1.  
+  """
+  @spec forward(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn forward(x, weight) do
+    weighted_sum = Nx.dot(x, weight)
+    sigmoid(weighted_sum)
+  end
+
+  @doc """
+  Return the prediction rounded to forecast a binary value (0, 1).
+  """
+  @spec classify(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn classify(x, weight) do
+    forward(x, weight)
+    |> Nx.round()
+  end
+
+  @doc """
+  Log loss function.
+  """
+  @spec loss(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: float()
+  defn loss(x, y, weight) do
+    # in python:
+    # y_hat = forward(X, w)
+    # first_term = Y * np.log(y_hat)
+    # second_term = (1 - Y) * np.log(1 - y_hat)
+    # return -np.average(first_term + second_term)
+
+    y_hat = forward(x, weight)
+
+    # Each label in the matrix `y_hat` is either `0` or `1`.
+    # - `first_term` disappears when `y_hat` is 0
+    # - `second_term` disappears when `y_hat` is 1
+    first_term = y * Nx.log(y_hat)
+    second_term = Nx.subtract(1, y) * Nx.log(Nx.subtract(1, y_hat))
+
+    Nx.add(first_term, second_term)
+    |> Nx.mean()
+    |> Nx.negate()
+  end
+
+  @doc """
+  Returns the derivate of the loss curve.
+  """
+  @spec gradient(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn gradient(x, y, weight) do
+    # in python:
+    # np.matmul(X.T, (predict(X, w) - Y)) / X.shape[0]
+
+    predictions = forward(x, weight)
+    errors = Nx.subtract(predictions, y)
+    n_examples = elem(Nx.shape(x), 0)
+
+    Nx.transpose(x)
+    |> Nx.dot(errors)
+    |> Nx.divide(n_examples)
+  end
+
+  @doc """
+  Computes the weight by training the system
+  with the given inputs and labels, by iterating
+  over the examples the specified number of times.
+  """
+  @spec train(
+          inputs :: Nx.Tensor.t(),
+          labels :: Nx.Tensor.t(),
+          iterations :: integer(),
+          learning_rate :: float()
+        ) :: weight :: Nx.Tensor.t()
+  def train(x, y, iterations, lr) do
+    Enum.reduce(0..iterations, init_weight(x), fn i, weight ->
+      IO.inspect("Iteration #{i} => Loss: #{Nx.to_number(loss(x, y, weight))}")
+
+      step(x, y, weight, lr)
+    end)
+  end
+
+  defnp step(x, y, weight, lr) do
+    Nx.subtract(weight, Nx.multiply(gradient(x, y, weight), lr))
+  end
+
+  @spec test(inputs :: Nx.Tensor.t(), labels :: Nx.Tensor.t(), weight :: Nx.Tensor.t()) :: :ok
+  def test(x, y, weight) do
+    total_examples = elem(Nx.shape(x), 0)
+
+    correct_results =
+      classify(x, weight)
+      |> Nx.equal(y)
+      |> Nx.sum()
+      |> Nx.to_number()
+
+    # Accuracy of the classifier
+    success_percent = Float.round(correct_results * 100 / total_examples, 2)
+
+    IO.puts("Success: #{correct_results}/#{total_examples} (#{success_percent}%)")
+  end
+
+  # Given n elements it returns a tensor
+  # with this shape {n, 1}, each element
+  # initialized to 0
+  defnp init_weight(x) do
+    n_elements = elem(Nx.shape(x), 1)
+    Nx.tile(Nx.tensor([0]), [n_elements, 1])
+  end
+end
+```
+
+## The real thing
+
+The test and train labels contain values from 0 to 9, but for this chapter we want to recognize only 5s, therefore we use the `C6.MNIST.encode_fives/1` function to turn these labels into binary values:
+
+* 1 when the value is `5`
+* 0 otherwise
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Train and test the system
+
+```elixir
+updated_y_train = C6.MNIST.encode_fives(y_train)
+
+weight = C5.Classifier.train(x_train, updated_y_train, iterations = 100, lr = 1.0e-5)
+```
+
+```elixir
+updated_y_test = C6.MNIST.encode_fives(y_test)
+
+C5.Classifier.test(x_test, updated_y_test, weight)
+```
