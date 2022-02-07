@@ -4,7 +4,8 @@
 
 ```elixir
 Mix.install([
-  {:nx, "~> 0.1"},
+  {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
+  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
   {:vega_lite, "~> 0.1.2"},
   {:kino, "~> 0.5.0"}
 ])
@@ -37,6 +38,8 @@ Vl.new(width: 600, height: 400)
 
 ```elixir
 defmodule C5.Classifier do
+  import Nx.Defn
+
   @doc """
   A sigmoid function is a mathematical function having
   a characteristic "S"-shaped curve or sigmoid curve.
@@ -49,7 +52,7 @@ defmodule C5.Classifier do
   More here https://en.wikipedia.org/wiki/Sigmoid_function
   """
   @spec sigmoid(Nx.Tensor.t()) :: Nx.Tensor.t()
-  def sigmoid(z) do
+  defn sigmoid(z) do
     Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
   end
 
@@ -60,7 +63,7 @@ defmodule C5.Classifier do
   Each element in the matrix is now constrained between 0 and 1.  
   """
   @spec forward(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
-  def forward(x, weight) do
+  defn forward(x, weight) do
     weighted_sum = Nx.dot(x, weight)
     sigmoid(weighted_sum)
   end
@@ -69,7 +72,7 @@ defmodule C5.Classifier do
   Return the prediction rounded to forecast a binary value (0, 1).
   """
   @spec classify(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
-  def classify(x, weight) do
+  defn classify(x, weight) do
     forward(x, weight)
     |> Nx.round()
   end
@@ -78,7 +81,7 @@ defmodule C5.Classifier do
   Log loss function.
   """
   @spec loss(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: float()
-  def loss(x, y, weight) do
+  defn loss(x, y, weight) do
     # in python:
     # y_hat = forward(X, w)
     # first_term = Y * np.log(y_hat)
@@ -90,9 +93,8 @@ defmodule C5.Classifier do
     # Each label in the matrix `y_hat` is either `0` or `1`.
     # - `first_term` disappears when `y_hat` is 0
     # - `second_term` disappears when `y_hat` is 1
-    first_term = Nx.dot(y, Nx.log(y_hat))
-    second_term = Nx.subtract(1, y)
-    Nx.dot(Nx.log(Nx.subtract(1, y_hat)))
+    first_term = y * Nx.log(y_hat)
+    second_term = Nx.subtract(1, y) * Nx.log(Nx.subtract(1, y_hat))
 
     Nx.add(first_term, second_term)
     |> Nx.mean()
@@ -103,7 +105,7 @@ defmodule C5.Classifier do
   Returns the derivate of the loss curve.
   """
   @spec gradient(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
-  def gradient(x, y, weight) do
+  defn gradient(x, y, weight) do
     # in python:
     # np.matmul(X.T, (predict(X, w) - Y)) / X.shape[0]
 
@@ -129,8 +131,15 @@ defmodule C5.Classifier do
         ) :: weight :: Nx.Tensor.t()
   def train(x, y, iterations, lr) do
     Enum.reduce(0..iterations, init_weight(x), fn _i, weight ->
-      Nx.subtract(weight, Nx.multiply(gradient(x, y, weight), lr))
+      # Commented out to don't freeze the browser
+      # IO.inspect("Iteration #{i} => Loss: #{Nx.to_number(loss(x, y, weight))}")
+
+      step(x, y, weight, lr)
     end)
+  end
+
+  defnp step(x, y, weight, lr) do
+    Nx.subtract(weight, Nx.multiply(gradient(x, y, weight), lr))
   end
 
   @spec test(inputs :: Nx.Tensor.t(), labels :: Nx.Tensor.t(), weight :: Nx.Tensor.t()) :: :ok
@@ -152,7 +161,7 @@ defmodule C5.Classifier do
   # Given n elements it returns a tensor
   # with this shape {n, 1}, each element
   # initialized to 0
-  defp init_weight(x) do
+  defnp init_weight(x) do
     n_elements = elem(Nx.shape(x), 1)
     Nx.tile(Nx.tensor([0]), [n_elements, 1])
   end
@@ -206,7 +215,7 @@ x =
   |> Nx.transpose()
 
 # Same of `y.reshape(-1, 1)` used in the book
-y = Nx.tensor([y]) |> Nx.transpose()
+y = Nx.tensor(y) |> Nx.reshape({:auto, 1})
 ```
 
 ### Our new model
