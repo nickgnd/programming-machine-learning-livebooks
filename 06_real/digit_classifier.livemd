@@ -273,7 +273,7 @@ defmodule C5.Classifier do
 end
 ```
 
-## The real thing
+## The real thing - recognize the 5
 
 The test and train labels contain values from 0 to 9, but for this chapter we want to recognize only 5s, therefore we use the `C6.MNIST.encode_fives/1` function to turn these labels into binary values:
 
