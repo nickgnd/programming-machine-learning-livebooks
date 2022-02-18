@@ -227,7 +227,7 @@ alias VegaLite, as: Vl
 
 reservations_tensor = Nx.tensor([x0, x1]) |> Nx.transpose()
 
-# It can takes a bit of time
+# It can take a bit of time
 weight = C5.Classifier.train(reservations_tensor, y, iterations = 1_000_000, lr = 0.01)
 
 predictions = C5.Classifier.forward(reservations_tensor, weight)
