@@ -119,17 +119,12 @@ defmodule C7.MNIST do
   """
   @spec prepend_bias(Nx.Tensor.t()) :: Nx.Tensor.t()
   def prepend_bias(x) do
-    bias = List.duplicate(1, elem(Nx.shape(x), 0))
-
-    bias_tensor =
-      [bias]
-      |> Nx.tensor()
-      |> Nx.transpose()
+    bias = Nx.broadcast(1, {elem(Nx.shape(x), 0), 1})
 
     # Insert a column of 1s in the position 0 of x.
     # ("axis: 1" stands for: "insert a column, not a row")
     # in python: `np.insert(X, 0, 1, axis=1)`
-    Nx.concatenate([bias_tensor, x], axis: 1)
+    Nx.concatenate([bias, x], axis: 1)
   end
 end
 ```
@@ -258,7 +253,7 @@ defmodule C7.Classifier do
     matches = matches * 100.0 / n_test_examples
     training_loss = loss(x_train, y_train, weight) |> Nx.to_number()
 
-    IO.inspect("Iteration #{iteration} => Loss: #{training_loss}%, #{matches}")
+    IO.inspect("Iteration #{iteration} => Loss: #{training_loss}, #{matches}%")
   end
 
   @doc """
