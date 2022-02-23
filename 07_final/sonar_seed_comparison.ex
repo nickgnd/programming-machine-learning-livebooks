@@ -1,22 +1,13 @@
-# SONAR, mines vs. rocks
+# Based on sonar_classifier
 
-## Install dependencies
-
-```elixir
 Mix.install([
   {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
-  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
-  {:vega_lite, "~> 0.1.2"},
-  {:kino, "~> 0.5.0"}
+  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true}
 ])
 
 # Set the backend
 Nx.Defn.global_default_options(compiler: EXLA)
-```
 
-## Load Sonar data
-
-```elixir
 defmodule C7.SonarDataset do
   @moduledoc """
   Use this Module to load the Sonar database (test, train, and labels).
@@ -25,7 +16,7 @@ defmodule C7.SonarDataset do
   The documentation of the dataset can be found in the `sonar.names` file.
   """
 
-  @sonar_all_data_filename "./data/sonar/sonar.all-data"
+  @sonar_all_data_filename "../data/sonar/sonar.all-data"
 
   @type t :: %__MODULE__{
           x_train: Nx.Tensor.t(),
@@ -35,19 +26,16 @@ defmodule C7.SonarDataset do
         }
   defstruct [:x_train, :x_test, :y_train, :y_test]
 
-  # Seed the random algorithm to initialize its state.
-  :rand.seed(:exsss, 97)
-
   @doc """
   Load the Sonar database and return the train and test data.
 
-  The function accepts the argument `test_number` to define how many
-  of the patterns will be used for training.
+  The function accepts the argument `rnd_seed` to initialize the Random algorithm
+  before shuffling the list of patterns.
   The given number should consider that the are in total 208 patterns (111 from metal,
   97 from rocks). The default value is 48, which is ~23% of the whole dataset.
   """
-  @spec load(test_number :: pos_integer()) :: t()
-  def load(test_number \\ 48) do
+  @spec load(rnd_seed :: integer()) :: t()
+  def load(rnd_seed) do
     # The file "sonar.all-data" contains 208 patterns:
     # - 111 patterns obtained by bouncing sonar signals off a
     # metal cylinder at various angles and under various conditions.
@@ -58,13 +46,16 @@ defmodule C7.SonarDataset do
     # `M` or `R` depending if it has been obtained from a metal or rock.
     #
 
+    :rand.seed(:exsss, rnd_seed)
+
     with {:ok, binary} <- File.read(@sonar_all_data_filename) do
       data =
         binary
         |> parse()
         |> Enum.shuffle()
 
-      {train_data, test_data} = Enum.split(data, length(data) - test_number)
+      # Keep 48 examples for testing
+      {train_data, test_data} = Enum.split(data, length(data) - 48)
 
       {x_train, y_train} = split_inputs_and_labels(train_data)
       {x_test, y_test} = split_inputs_and_labels(test_data)
@@ -123,21 +114,7 @@ defmodule C7.SonarDataset do
     Nx.concatenate([bias, x], axis: 1)
   end
 end
-```
 
-```elixir
-%{x_train: x_train, x_test: x_test, y_train: y_train, y_test: y_test} = C7.SonarDataset.load()
-```
-
-Hot-encode the labels tensor (train data).
-
-```elixir
-y_train = C7.SonarDataset.one_hot_encode(y_train)
-```
-
-## Train and test the system
-
-```elixir
 defmodule C7.Classifier do
   import Nx.Defn
 
@@ -161,7 +138,7 @@ defmodule C7.Classifier do
   Return the prediction tensor ŷ (y_hat) given the inputs and weight.
   The returned tensor is a matrix with the same dimensions as
   the weighted sum: one row per example, and one column.
-  Each element in the matrix is now constrained between 0 and 1.  
+  Each element in the matrix is now constrained between 0 and 1.
   """
   @spec forward(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn forward(x, weight) do
@@ -248,7 +225,6 @@ defmodule C7.Classifier do
 
     # Commented to don't freeze the browser
     # IO.inspect("Iteration #{iteration} => Loss: #{training_loss}, #{matches}%")
-
     {iteration, training_loss, matches}
   end
 
@@ -303,47 +279,30 @@ defmodule C7.Classifier do
     Nx.broadcast(0, {n_input_variables, n_classes})
   end
 end
-```
 
-## Multiclass classifier
+seed_range = 0..100
 
-### Train and test the system
+results =
+  Enum.reduce(seed_range, [], fn seed, acc ->
+    IO.puts "Seed #{seed} in progress..."
 
-* Shuffle the patterns randomly (random algorithm previously seeded)
-  * The seed is initialized with `97`, which is the seed that gave the better results in terms of % of matches.
-    See `seed_results.txt` to compare how the % of matches differs when training the system with a different seed (from 0 to 100). To start the comparison run `elixir sonar_seed_comparison.ex` (it will take a while).
-* 48 examples used for testing
-* iterations `100_000`
-* learning rate `0.01`
+    %{x_train: x_train, x_test: x_test, y_train: y_train, y_test: y_test} =
+      C7.SonarDataset.load(seed)
 
-```elixir
-{weight, reports} =
-  C7.Classifier.train(x_train, y_train, x_test, y_test, iterations = 100_000, lr = 0.01)
-```
+    y_train = C7.SonarDataset.one_hot_encode(y_train)
 
-```elixir
-alias VegaLite, as: Vl
+    {weight, reports} =
+      C7.Classifier.train(x_train, y_train, x_test, y_test, iterations = 100_000, lr = 0.01)
 
-iterations = Enum.map(reports, &elem(&1, 0))
-matches = Enum.map(reports, &elem(&1, 2))
+    max_match_report = Enum.max_by(reports, &elem(&1, 2))
 
-# Get the max matches %
-max_matches_index = Enum.find_index(matches, &(&1 == Enum.max(matches)))
+    acc ++ [{seed, Enum.at(reports, -1), max_match_report}]
+  end)
 
-Vl.new(width: 800, height: 400)
-|> Vl.layers([
-  Vl.new()
-  |> Vl.data_from_series(iterations: iterations, matches: matches)
-  |> Vl.mark(:line)
-  |> Vl.encode_field(:x, "iterations", type: :quantitative)
-  |> Vl.encode_field(:y, "matches", type: :quantitative, title: "matches (%)"),
-  Vl.new()
-  |> Vl.data_from_series(
-    iterations: [Enum.at(iterations, max_matches_index)],
-    max_matches: [Enum.at(matches, max_matches_index)]
-  )
-  |> Vl.mark(:circle, tooltip: true, size: "100", color: "red")
-  |> Vl.encode_field(:x, "iterations", type: :quantitative)
-  |> Vl.encode_field(:y, "max_matches", type: :quantitative, title: "matches (%)")
-])
-```
+content =
+  Enum.map(results, fn {seed, last_report, max_report} ->
+    "seed: #{seed}, last report: {#{elem(last_report, 0)}, #{elem(last_report, 2)}%}, max report: {#{elem(max_report, 0)}, #{elem(max_report, 2)}%}"
+  end)
+  |> Enum.join("\n")
+
+File.write!("./seed_results.txt", content)
