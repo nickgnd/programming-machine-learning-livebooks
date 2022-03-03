@@ -1,0 +1,270 @@
+# Forward Propagation - MNIST
+
+## Install dependencies
+
+```elixir
+Mix.install([
+  {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
+  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.5.0"},
+  {:jason, "~> 1.2"}
+])
+
+# Set the backend
+Nx.Defn.global_default_options(compiler: EXLA)
+```
+
+## Load MNIST images
+
+_The module to load MNIST data is based on the chapter 7 implementation._
+
+```elixir
+defmodule C10.MNIST do
+  @moduledoc """
+  Use this Module to load the MNIST database (test, train, and labels).
+
+  MNIST dataset specifications can be found here: http://yann.lecun.com/exdb/mnist/
+  """
+
+  @train_images_filename "./data/mnist/train-images-idx3-ubyte.gz"
+  @test_images_filename "./data/mnist/t10k-images-idx3-ubyte.gz"
+  @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
+  @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
+
+  @type t :: %__MODULE__{
+          x_train: Nx.Tensor.t(),
+          x_test: Nx.Tensor.t(),
+          y_train: Nx.Tensor.t(),
+          y_test: Nx.Tensor.t()
+        }
+  defstruct [:x_train, :x_test, :y_train, :y_test]
+
+  @doc """
+  Load the MNIST database and return the train and test images.
+  """
+  @spec load() :: t()
+  def load() do
+    %__MODULE__{
+      # 60000 images, each 784 elements (28 * 28 pixels)
+      x_train: load_images(@train_images_filename),
+      # 10000 images, each 784 elements, with the same structure as `x_train`
+      x_test: load_images(@test_images_filename),
+      # 60000 labels
+      y_train: load_labels(@train_labels_filename),
+      # 10000 labels, with the same encoding as `y_train`
+      y_test: load_labels(@test_labels_filename)
+    }
+  end
+
+  @doc """
+  One-hot encode the given tensor (classes: from 0 to 9).
+  """
+  @spec one_hot_encode(y :: Nx.Tensor.t()) :: Nx.Tensor.t()
+  def one_hot_encode(y) do
+    Nx.equal(y, Nx.tensor(Enum.to_list(0..9)))
+  end
+
+  @doc """
+  Load the MNIST labels from the given file
+  and return a matrix.
+  """
+  @spec load_labels(Path.t()) :: Nx.Tensor.t()
+  def load_labels(filename) do
+    # Open and unzip the file of labels
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_labels::32, labels_binary::binary>> = :zlib.gunzip(binary)
+
+      # Create a tensor from the binary and
+      # reshape the list of labels into a one-column matrix.
+      labels_binary
+      |> Nx.from_binary({:u, 8})
+      |> Nx.reshape({n_labels, 1})
+    end
+  end
+
+  @doc """
+  Load the MNIST images from the given file
+  and return a matrix.
+  """
+  @spec load_images(Path.t()) :: Nx.Tensor.t()
+  def load_images(filename) do
+    # Open and unzip the file of images
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_images::32, n_rows::32, n_cols::32, images_binary::binary>> =
+        :zlib.gunzip(binary)
+
+      # Create a tensor from the binary and
+      # reshape the pixels into a matrix where each line is an image.
+      images_binary
+      |> Nx.from_binary({:u, 8})
+      |> Nx.reshape({n_images, n_cols * n_rows})
+    end
+  end
+end
+```
+
+### Load the data.
+
+```elixir
+# Use the public API to get train and test images
+%{x_train: x_train, x_test: x_test, y_train: y_train, y_test: y_test} = data = C10.MNIST.load()
+```
+
+## Softmax
+
+Softmax is used as activation function as the `sigmoid` we used in the previous chapter. It is used in the last network's layer.
+
+<!-- livebook:{"break_markdown":true} -->
+
+$$
+softmax(l_i) = \cfrac{e^{l_i}}{\sum e^{l}}
+$$
+
+```elixir
+softmax = fn logits ->
+  exponentials = Nx.exp(logits)
+
+  Nx.divide(
+    exponentials,
+    Nx.sum(exponentials, axes: [1]) |> Nx.reshape({:auto, 1})
+  )
+end
+
+output = Nx.tensor([[0.3, 0.8, 0.2], [0.1, 0.9, 0.1]])
+
+softmax.(output)
+```
+
+## Define the classifier
+
+_Update the classifier implemented in chapter 7._
+
+```elixir
+defmodule C10.Classifier do
+  import Nx.Defn
+
+  @doc """
+  A sigmoid function is a mathematical function having
+  a characteristic "S"-shaped curve or sigmoid curve.
+
+  A sigmoid function:
+  - is monotonic
+  - has no local minimums
+  - has a non-negative derivative for each point
+
+  It is used as activation function in the intermediate
+  layers of a neural network.
+
+  More here https://en.wikipedia.org/wiki/Sigmoid_function
+  """
+  @spec sigmoid(Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn sigmoid(z) do
+    Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
+  end
+
+  @doc """
+  A softmax function turns a list of numbers (logits)
+  into probabilities that sum to one.
+
+  It is used as activation function in the last
+  layer of a neural network.
+
+  More here https://en.wikipedia.org/wiki/Softmax_function
+  """
+  @spec softmax(Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn softmax(logits) do
+    exponentials = Nx.exp(logits)
+
+    Nx.divide(
+      exponentials,
+      Nx.sum(exponentials, axes: [1]) |> Nx.reshape({:auto, 1})
+    )
+  end
+
+  @doc """
+  Prepend a the bias, an extra column of 1s, to
+  the given tensor.
+  """
+  @spec prepend_bias(Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn prepend_bias(x) do
+    bias = Nx.broadcast(1, {elem(Nx.shape(x), 0), 1})
+
+    # Insert a column of 1s in the position 0 of x.
+    # ("axis: 1" stands for: "insert a column, not a row")
+    Nx.concatenate([bias, x], axis: 1)
+  end
+
+  @doc """
+  Return the prediction tensor ŷ (y_hat) given the inputs and weights.
+  The returned tensor is a matrix with the same dimensions as
+  the weighted sum: one row per example, and one column.
+  Each element in the matrix is now constrained between 0 and 1.  
+  """
+  @spec forward(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn forward(x, weight1, weight2) do
+    h = sigmoid(Nx.dot(prepend_bias(x), weight1))
+    softmax(Nx.dot(prepend_bias(h), weight2))
+  end
+
+  @doc """
+  Return the prediction rounded to forecast a value between 0 and 9.
+  """
+  @spec classify(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn classify(x, weight1, weight2) do
+    y_hat = forward(x, weight1, weight2)
+
+    # Get the index of the maximum value in each row of y_hat
+    # (the value that’s closer to 1).
+    # NOTE: in case of MNIST dataset, the returned index is also the
+    # decoded label (0..9).
+    labels = Nx.argmax(y_hat, axis: 1)
+
+    Nx.reshape(labels, {:auto, 1})
+  end
+
+  @doc """
+  Cross-entropy loss.
+
+  It measures the distance between the classifier's prediction
+  and the labels.
+  """
+  @spec loss(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
+  defn loss(y, y_hat) do
+    # In python: -np.sum(Y * np.log(y_hat)) / Y.shape[0]
+    -Nx.sum(y * Nx.log(y_hat)) / elem(Nx.shape(y), 0)
+  end
+
+  @doc """
+  Utility to report (to stdout) the loss per iteration.
+  """
+  @spec report(
+          integer(),
+          Nx.Tensor.t(),
+          Nx.Tensor.t(),
+          Nx.Tensor.t(),
+          Nx.Tensor.t(),
+          Nx.Tensor.t(),
+          Nx.Tensor.t()
+        ) :: String.t()
+  def report(iteration, x_train, y_train, x_test, y_test, weight1, weight2) do
+    y_hat = forward(x_train, weight1, weight2)
+    training_loss = loss(y_train, y_hat) |> Nx.to_number()
+    classifications = classify(x_test, weight1, weight2)
+    accuracy = Nx.multiply(Nx.mean(Nx.equal(classifications, y_test)), 100.0) |> Nx.to_number()
+
+    IO.puts("Iteration #{iteration}, Loss: #{training_loss}, Accuracy: #{accuracy}%")
+  end
+end
+```
+
+### Test the system with some pre-computed weights
+
+```elixir
+[weight1, weight2] =
+  File.read!("./10_building/weights.json")
+  |> Jason.decode!()
+  |> Enum.map(&Nx.tensor/1)
+
+C10.Classifier.report(0, x_train, y_train, x_test, y_test, weight1, weight2)
+```
