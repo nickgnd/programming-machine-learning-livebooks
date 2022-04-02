@@ -1,7 +1,5 @@
 # Forward Propagation - MNIST
 
-## Install dependencies
-
 ```elixir
 Mix.install([
   {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
