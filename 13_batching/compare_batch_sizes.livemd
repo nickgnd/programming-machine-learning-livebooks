@@ -1,0 +1,424 @@
+# Batches Large and Small
+
+```elixir
+Mix.install([
+  {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
+  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.5.0"}
+])
+
+# Set the backend
+Nx.Defn.global_default_options(compiler: EXLA)
+```
+
+## Load MNIST images
+
+_The module to load MNIST data is the same used in the chapter 11, where `y_train` is already hot-encoded._
+
+```elixir
+defmodule C11.MNIST do
+  @moduledoc """
+  Use this Module to load the MNIST database (test, train, and labels).
+
+  MNIST dataset specifications can be found here: http://yann.lecun.com/exdb/mnist/
+  """
+
+  @train_images_filename "./data/mnist/train-images-idx3-ubyte.gz"
+  @test_images_filename "./data/mnist/t10k-images-idx3-ubyte.gz"
+  @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
+  @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
+
+  @type t :: %__MODULE__{
+          x_train: Nx.Tensor.t(),
+          x_test: Nx.Tensor.t(),
+          y_train: Nx.Tensor.t(),
+          y_test: Nx.Tensor.t()
+        }
+  defstruct [:x_train, :x_test, :y_train, :y_test]
+
+  @doc """
+  Load the MNIST database and return the train and test images.
+
+  `y_train` already hot-encoded.
+  """
+  @spec load() :: t()
+  def load() do
+    %__MODULE__{
+      # 60000 images, each 784 elements (28 * 28 pixels)
+      x_train: load_images(@train_images_filename),
+      # 10000 images, each 784 elements, with the same structure as `x_train`
+      x_test: load_images(@test_images_filename),
+      # 60000 labels
+      y_train: load_labels(@train_labels_filename) |> one_hot_encode(),
+      # 10000 labels, with the same encoding as `y_train`
+      y_test: load_labels(@test_labels_filename)
+    }
+  end
+
+  @doc """
+  One-hot encode the given tensor (classes: from 0 to 9).
+  """
+  @spec one_hot_encode(y :: Nx.Tensor.t()) :: Nx.Tensor.t()
+  def one_hot_encode(y) do
+    Nx.equal(y, Nx.tensor(Enum.to_list(0..9)))
+  end
+
+  @doc """
+  Load the MNIST labels from the given file
+  and return a matrix.
+  """
+  @spec load_labels(Path.t()) :: Nx.Tensor.t()
+  def load_labels(filename) do
+    # Open and unzip the file of labels
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_labels::32, labels_binary::binary>> = :zlib.gunzip(binary)
+
+      # Create a tensor from the binary and
+      # reshape the list of labels into a one-column matrix.
+      labels_binary
+      |> Nx.from_binary({:u, 8})
+      |> Nx.reshape({n_labels, 1})
+    end
+  end
+
+  @doc """
+  Load the MNIST images from the given file
+  and return a matrix.
+  """
+  @spec load_images(Path.t()) :: Nx.Tensor.t()
+  def load_images(filename) do
+    # Open and unzip the file of images
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_images::32, n_rows::32, n_cols::32, images_binary::binary>> =
+        :zlib.gunzip(binary)
+
+      # Create a tensor from the binary and
+      # reshape the pixels into a matrix where each line is an image.
+      images_binary
+      |> Nx.from_binary({:u, 8})
+      |> Nx.reshape({n_images, n_cols * n_rows})
+    end
+  end
+end
+```
+
+### Load the data
+
+```elixir
+# Use the public API to get train and test images
+%{x_train: x_train, x_test: x_test, y_train: y_train, y_test: y_test} = data = C11.MNIST.load()
+```
+
+## Batch comparisons
+
+_The classifier is the same used in the other livebook, same chapter._
+
+```elixir
+defmodule C13.ClassifierWithTimeSeries do
+  import Nx.Defn
+
+  defn sigmoid(z) do
+    Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
+  end
+
+  defn softmax(logits) do
+    exponentials = Nx.exp(logits)
+
+    Nx.divide(
+      exponentials,
+      Nx.sum(exponentials, axes: [1]) |> Nx.reshape({:auto, 1})
+    )
+  end
+
+  defn sigmoid_gradient(sigmoid) do
+    Nx.multiply(sigmoid, 1 - sigmoid)
+  end
+
+  defn loss(y, y_hat) do
+    -Nx.sum(y * Nx.log(y_hat)) / elem(Nx.shape(y), 0)
+  end
+
+  defn prepend_bias(x) do
+    bias = Nx.broadcast(1, {elem(Nx.shape(x), 0), 1})
+
+    # Insert a column of 1s in the position 0 of x.
+    # ("axis: 1" stands for: "insert a column, not a row")
+    Nx.concatenate([bias, x], axis: 1)
+  end
+
+  defn forward(x, weight1, weight2) do
+    h = sigmoid(Nx.dot(prepend_bias(x), weight1))
+    y_hat = softmax(Nx.dot(prepend_bias(h), weight2))
+
+    {y_hat, h}
+  end
+
+  defn back(x, y, y_hat, weight2, h) do
+    w2_gradient =
+      Nx.dot(
+        Nx.transpose(prepend_bias(h)),
+        Nx.subtract(y_hat, y)
+      ) / elem(Nx.shape(x), 0)
+
+    w1_gradient =
+      Nx.dot(
+        Nx.transpose(prepend_bias(x)),
+        Nx.dot(y_hat - y, Nx.transpose(weight2[1..-1//1])) * sigmoid_gradient(h)
+      ) / elem(Nx.shape(x), 0)
+
+    {w1_gradient, w2_gradient}
+  end
+
+  defn classify(x, weight1, weight2) do
+    {y_hat, _h} = forward(x, weight1, weight2)
+    labels = Nx.argmax(y_hat, axis: 1)
+    Nx.reshape(labels, {:auto, 1})
+  end
+
+  defn initialize_weights(opts \\ []) do
+    opts = keyword!(opts, [:w1_shape, :w2_shape])
+
+    mean = 0.0
+    std_deviation = 0.01
+    weight1 = Nx.random_normal(opts[:w1_shape], mean, std_deviation)
+    weight2 = Nx.random_normal(opts[:w2_shape], mean, std_deviation)
+
+    {weight1, weight2}
+  end
+
+  def prepare_batches(x_train, y_train, batch_size) do
+    x_batches = Nx.to_batched_list(x_train, batch_size)
+    y_batches = Nx.to_batched_list(y_train, batch_size)
+
+    {x_batches, y_batches}
+  end
+
+  def update_series_in_state(state, x_train, y_train, w1, w2) do
+    {y_hat, _h} = forward(x_train, w1, w2)
+    training_loss = loss(y_train, y_hat) |> Nx.to_number()
+
+    %{
+      state
+      | losses: state.losses ++ [training_loss],
+        times: state.times ++ [DateTime.utc_now()],
+        steps: state.steps + 1
+    }
+  end
+
+  def train(x_train, y_train, _x_test, _y_test, n_hidden_nodes, batch_size, lr, timeout_after) do
+    n_input_variables = elem(Nx.shape(x_train), 1)
+    n_classes = elem(Nx.shape(y_train), 1)
+
+    {initial_weight_1, initial_weight_2} =
+      initialize_weights(
+        w1_shape: {n_input_variables + 1, n_hidden_nodes},
+        w2_shape: {n_hidden_nodes + 1, n_classes}
+      )
+
+    {x_batches, y_batches} = prepare_batches(x_train, y_train, batch_size)
+
+    now = DateTime.utc_now()
+
+    initial_state = %{
+      w1: initial_weight_1,
+      w2: initial_weight_2,
+      losses: [],
+      times: [],
+      steps: 0,
+      epochs: 0,
+      batch: 0,
+      start_time: now,
+      timeout_at: DateTime.add(now, timeout_after, :second)
+    }
+
+    do_train(x_train, y_train, x_batches, y_batches, lr, initial_state)
+  end
+
+  defp do_train(
+         x_train,
+         y_train,
+         x_batches,
+         y_batches,
+         lr,
+         %{w1: w1, w2: w2, timeout_at: timeout_at, batch: batch} = state
+       ) do
+    updated_state = update_series_in_state(state, x_train, y_train, w1, w2)
+
+    cond do
+      DateTime.compare(DateTime.utc_now(), timeout_at) == :gt ->
+        updated_state
+
+      batch > length(x_batches) - 1 ->
+        do_train(
+          x_train,
+          y_train,
+          x_batches,
+          y_batches,
+          lr,
+          %{updated_state | batch: 0, epochs: state.epochs + 1}
+        )
+
+      true ->
+        {updated_w1, updated_w2} =
+          step(Enum.at(x_batches, batch), Enum.at(y_batches, batch), w1, w2, lr)
+
+        do_train(
+          x_train,
+          y_train,
+          x_batches,
+          y_batches,
+          lr,
+          %{
+            updated_state
+            | w1: updated_w1,
+              w2: updated_w2,
+              batch: batch + 1,
+              steps: state.steps + 1
+          }
+        )
+    end
+  end
+
+  defnp step(x_batch, y_batch, w1, w2, lr) do
+    {y_hat, h} = forward(x_batch, w1, w2)
+    {w1_gradient, w2_gradient} = back(x_batch, y_batch, y_hat, w2, h)
+    w1 = w1 - w1_gradient * lr
+    w2 = w2 - w2_gradient * lr
+
+    {w1, w2}
+  end
+end
+```
+
+```elixir
+hidden_nodes = 200
+learning_rate = 0.01
+# In the book is 1800 seconds for each training
+# timeout_after = 1800
+timeout_after = 150
+
+# Stochastic GD
+stochastic_gd_size = 1
+
+stochastic_gd_result =
+  C13.ClassifierWithTimeSeries.train(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    hidden_nodes,
+    stochastic_gd_size,
+    learning_rate,
+    timeout_after
+  )
+
+# Batch size 32
+batch32_result =
+  C13.ClassifierWithTimeSeries.train(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    hidden_nodes,
+    32,
+    learning_rate,
+    timeout_after
+  )
+
+# Batch size 128
+batch128_result =
+  C13.ClassifierWithTimeSeries.train(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    hidden_nodes,
+    128,
+    learning_rate,
+    timeout_after
+  )
+
+# Batch GD
+batch_gd_size = elem(Nx.shape(x_train), 0)
+
+batch_gd_result =
+  C13.ClassifierWithTimeSeries.train(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    hidden_nodes,
+    batch_gd_size,
+    learning_rate,
+    timeout_after
+  )
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+stochastic_gd_inputs =
+  Enum.zip_with([stochastic_gd_result.losses, stochastic_gd_result.times], fn [l, t] ->
+    %{
+      type: "Stochastic GD",
+      loss: l,
+      time: DateTime.diff(t, stochastic_gd_result.start_time, :millisecond) / 1000
+    }
+  end)
+
+batch32_inputs =
+  Enum.zip_with([batch32_result.losses, batch32_result.times], fn [l, t] ->
+    %{
+      type: "Batch 32",
+      loss: l,
+      time: DateTime.diff(t, batch32_result.start_time, :millisecond) / 1000
+    }
+  end)
+
+batch128_inputs =
+  Enum.zip_with([batch128_result.losses, batch128_result.times], fn [l, t] ->
+    %{
+      type: "Batch 128",
+      loss: l,
+      time: DateTime.diff(t, batch128_result.start_time, :millisecond) / 1000
+    }
+  end)
+
+batch_gd_inputs =
+  Enum.zip_with([batch_gd_result.losses, batch_gd_result.times], fn [l, t] ->
+    %{
+      type: "Batch GD",
+      loss: l,
+      time: DateTime.diff(t, batch_gd_result.start_time, :millisecond) / 1000
+    }
+  end)
+
+Vl.new(width: 600, height: 400)
+|> Vl.layers([
+  Vl.new()
+  |> Vl.data_from_values(stochastic_gd_inputs)
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "time", title: "time (seconds)", type: :quantitative)
+  |> Vl.encode_field(:y, "loss", title: "loss", type: :quantitative)
+  |> Vl.encode(:color, field: "type"),
+  Vl.new()
+  |> Vl.data_from_values(batch32_inputs)
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "time", title: "time (seconds)", type: :quantitative)
+  |> Vl.encode_field(:y, "loss", title: "loss", type: :quantitative)
+  |> Vl.encode(:color, field: "type"),
+  Vl.new()
+  |> Vl.data_from_values(batch128_inputs)
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "time", title: "time (seconds)", type: :quantitative)
+  |> Vl.encode_field(:y, "loss", title: "loss", type: :quantitative)
+  |> Vl.encode(:color, field: "type"),
+  Vl.new()
+  |> Vl.data_from_values(batch_gd_inputs)
+  |> Vl.mark(:line)
+  |> Vl.encode_field(:x, "time", title: "time (seconds)", type: :quantitative)
+  |> Vl.encode_field(:y, "loss", title: "loss", type: :quantitative)
+  |> Vl.encode(:color, field: "type")
+])
+```
