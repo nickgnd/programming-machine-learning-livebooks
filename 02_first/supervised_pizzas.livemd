@@ -1,11 +1,10 @@
 # 02_first
 
-## Install dependencies
-
 ```elixir
 Mix.install([
-  {:vega_lite, "~> 0.1.2"},
-  {:kino, "~> 0.5.0"}
+  {:vega_lite, "~> 0.1.6"},
+  {:kino, "~> 0.6.2"},
+  {:kino_vega_lite, "~> 0.1.3"}
 ])
 ```
 
@@ -42,7 +41,7 @@ alias VegaLite, as: Vl
 
 # Initialize the specification, optionally with some top-level properties
 Vl.new(width: 600, height: 400)
-|> Vl.data_from_series(reservations: x, pizzas: y)
+|> Vl.data_from_values(reservations: x, pizzas: y)
 |> Vl.mark(:point, tooltip: true)
 |> Vl.encode_field(:x, "reservations", type: :quantitative)
 |> Vl.encode_field(:y, "pizzas", type: :quantitative)
@@ -132,7 +131,7 @@ predictions =
   |> Enum.map(&C2.LinearRegression.predict(&1, w))
 
 Vl.new(width: 600, height: 400)
-|> Vl.data_from_series(
+|> Vl.data_from_values(
   reservations: x,
   pizzas: y,
   predictions_x: Enum.to_list(0..Enum.max(x)),
@@ -240,7 +239,7 @@ predictions =
   |> Enum.map(&C2.LinearRegressionWithBias.predict(&1, w2, bias))
 
 Vl.new(width: 600, height: 400)
-|> Vl.data_from_series(
+|> Vl.data_from_values(
   reservations: x,
   pizzas: y,
   predictions_x: Enum.to_list(0..Enum.max(x)),

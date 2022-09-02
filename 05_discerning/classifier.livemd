@@ -1,14 +1,16 @@
 # 05_discerning
 
-## Install dependencies
-
 ```elixir
 Mix.install([
-  {:exla, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "exla"},
-  {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
-  {:vega_lite, "~> 0.1.2"},
-  {:kino, "~> 0.5.0"}
+  {:exla, "~> 0.3"},
+  {:nx, "~> 0.3"},
+  {:kino, "~> 0.6.2"},
+  {:kino_vega_lite, "~> 0.1.3"},
+  {:vega_lite, "~> 0.1.6"}
 ])
+
+# Set the backend
+Nx.Defn.global_default_options(compiler: EXLA)
 ```
 
 ## Sigmoids
@@ -30,7 +32,7 @@ z = Enum.map(-50..50, &(&1 / 10))
 sigmoids = Enum.map(z, fn v -> sigmoid_fn.(v) end)
 
 Vl.new(width: 600, height: 400)
-|> Vl.data_from_series(z: z, sigmoids: sigmoids)
+|> Vl.data_from_values(z: z, sigmoids: sigmoids)
 |> Vl.mark(:line)
 |> Vl.encode_field(:x, "z", type: :quantitative)
 |> Vl.encode_field(:y, "sigmoids", type: :quantitative, title: "sigmoid(z)")
@@ -240,7 +242,7 @@ rounded_predictions = C5.Classifier.classify(reservations_tensor, weight)
 Vl.new(width: 600, height: 400, title: "Model - forward()")
 |> Vl.layers([
   Vl.new()
-  |> Vl.data_from_series(
+  |> Vl.data_from_values(
     reservations: x1,
     police_calls: Nx.to_flat_list(y)
   )
@@ -248,7 +250,7 @@ Vl.new(width: 600, height: 400, title: "Model - forward()")
   |> Vl.encode_field(:x, "reservations", type: :quantitative, title: "Reservations")
   |> Vl.encode_field(:y, "police_calls", type: :quantitative, title: "Police Calls"),
   Vl.new()
-  |> Vl.data_from_series(
+  |> Vl.data_from_values(
     reservations: x1,
     forward: Nx.to_flat_list(predictions)
   )
@@ -262,7 +264,7 @@ Vl.new(width: 600, height: 400, title: "Model - forward()")
 Vl.new(width: 600, height: 400, title: "Predictions based on binary classification - classify()")
 |> Vl.layers([
   Vl.new()
-  |> Vl.data_from_series(
+  |> Vl.data_from_values(
     reservations: x1,
     police_calls: Nx.to_flat_list(y)
   )
@@ -270,7 +272,7 @@ Vl.new(width: 600, height: 400, title: "Predictions based on binary classificati
   |> Vl.encode_field(:x, "reservations", type: :quantitative, title: "Reservations")
   |> Vl.encode_field(:y, "police_calls", type: :quantitative, title: "Police Calls"),
   Vl.new()
-  |> Vl.data_from_series(
+  |> Vl.data_from_values(
     reservations: x1,
     classify: Nx.to_flat_list(rounded_predictions)
   )

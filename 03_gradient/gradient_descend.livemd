@@ -1,11 +1,10 @@
 # 03_gradient
 
-## Install dependencies
-
 ```elixir
 Mix.install([
-  {:vega_lite, "~> 0.1.2"},
-  {:kino, "~> 0.5.0"}
+  {:vega_lite, "~> 0.1.6"},
+  {:kino, "~> 0.6.2"},
+  {:kino_vega_lite, "~> 0.1.3"}
 ])
 ```
 
@@ -14,8 +13,9 @@ Mix.install([
 ```elixir
 # Read the data from the file, remove the header and return
 # `[%{reservations: integer(), pizzas: integer()}]`
+# File.read!("03_gradient/pizza.txt")
 data =
-  File.read!("03_gradient/pizza.txt")
+  File.read!("./03_gradient/pizza.txt")
   |> String.split("\n", trim: true)
   |> Enum.slice(1..-1)
   |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
@@ -105,12 +105,12 @@ min_loss_index = Enum.find_index(losses, &(&1 == Enum.min(losses)))
 Vl.new(width: 600, height: 400)
 |> Vl.layers([
   Vl.new()
-  |> Vl.data_from_series(weight: weights, loss: losses)
+  |> Vl.data_from_values(weight: weights, loss: losses)
   |> Vl.mark(:line)
   |> Vl.encode_field(:x, "weight", type: :quantitative)
   |> Vl.encode_field(:y, "loss", type: :quantitative),
   Vl.new()
-  |> Vl.data_from_series(
+  |> Vl.data_from_values(
     weight: [Enum.at(weights, min_loss_index)],
     min_loss: [Enum.at(losses, min_loss_index)]
   )
