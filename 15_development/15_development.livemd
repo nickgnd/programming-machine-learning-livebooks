@@ -1,0 +1,624 @@
+# 15 Let's do development
+
+```elixir
+Mix.install([
+  {:exla, "~> 0.3"},
+  {:nx, "~> 0.3"},
+  {:kino, "~> 0.6.2"},
+  {:kino_vega_lite, "~> 0.1.3"},
+  {:vega_lite, "~> 0.1.6"}
+])
+
+# Set the backend
+Nx.Defn.global_default_options(compiler: EXLA)
+```
+
+## Prepare Data - Standardizing Input Variables
+
+_The module to load MNIST data is the based on the one used in the chapter 14._
+
+```elixir
+defmodule C15.MNISTStandardized do
+  @moduledoc """
+  Use this Module to load the MNIST database (test, train and validation sets) with
+  standardized inputs.
+
+  MNIST dataset specifications can be found here: http://yann.lecun.com/exdb/mnist/
+  """
+
+  import Nx.Defn
+
+  @train_images_filename "./data/mnist/train-images-idx3-ubyte.gz"
+  @test_images_filename "./data/mnist/t10k-images-idx3-ubyte.gz"
+  @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
+  @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
+
+  @type t :: %__MODULE__{
+          x_train: Nx.Tensor.t(),
+          x_test: Nx.Tensor.t(),
+          x_validation: Nx.Tensor.t(),
+          y_train: Nx.Tensor.t(),
+          y_test: Nx.Tensor.t(),
+          y_validation: Nx.Tensor.t(),
+          y_train_unencoded: Nx.Tensor.t()
+        }
+  defstruct [
+    :x_train,
+    :x_test,
+    :x_validation,
+    :y_train,
+    :y_test,
+    :y_validation,
+    :y_train_unencoded
+  ]
+
+  @doc """
+  Load the MNIST database and return the train, test and validation images.
+
+  By default it standardizes the dataset, but it can be skipped by setting the
+  option `skip_standardization` to true.
+
+  `y_train` already hot-encoded.
+  """
+  @spec load(opts :: keyword()) :: t()
+  def load(opts \\ []) do
+    # 60000 images, each 784 elements (28 * 28 pixels)
+    x_train_raw = load_images(@train_images_filename)
+
+    # 10000 images, each 784 elements, with the same structure as `x_train`
+    x_test_raw = load_images(@test_images_filename)
+
+    {x_train, x_test_all} = maybe_standardize(x_train_raw, x_test_raw, opts)
+    {x_validation, x_test} = split(x_test_all)
+
+    # 10000 labels, each a single digit from 0 to 9
+    y_test_all = load_labels(@test_labels_filename)
+
+    # 5000 for validation - 5000 for testing
+    # each 784 elements, with the same structure as `x_train`
+    {y_validation, y_test} = split(y_test_all)
+
+    %__MODULE__{
+      x_train: x_train,
+      x_validation: x_validation,
+      x_test: x_test,
+      y_train: load_labels(@train_labels_filename) |> one_hot_encode(),
+      y_validation: y_validation,
+      y_test: y_test,
+      y_train_unencoded: load_labels(@train_labels_filename)
+    }
+  end
+
+  defp maybe_standardize(training_set, test_set, skip_standardization: true) do
+    {training_set, test_set}
+  end
+
+  defp maybe_standardize(training_set, test_set, _opts) do
+    standardize(training_set, test_set)
+  end
+
+  # The function calculates the average and the standard deviation on the training set alone,
+  # because that’s the only information that we want to train on.
+  # If we involve the validation and test set in those calculation,
+  # we'll leak information from those sets into the neural network's training.
+  defnp standardize(training_set, test_set) do
+    average = Nx.mean(training_set)
+    standard_deviation = Nx.standard_deviation(training_set)
+    training_set_standardized = (training_set - average) / standard_deviation
+    test_set_standardized = (test_set - average) / standard_deviation
+    {training_set_standardized, test_set_standardized}
+  end
+
+  defp split(tensor) do
+    {x, _} = Nx.shape(tensor)
+    len = trunc(x / 2)
+    first_half = Nx.slice_along_axis(tensor, 0, len, axis: 0)
+    second_half = Nx.slice_along_axis(tensor, len + 1, len, axis: 0)
+    {first_half, second_half}
+  end
+
+  @doc """
+  One-hot encode the given tensor (classes: from 0 to 9).
+  """
+  @spec one_hot_encode(y :: Nx.Tensor.t()) :: Nx.Tensor.t()
+  def one_hot_encode(y) do
+    Nx.equal(y, Nx.tensor(Enum.to_list(0..9)))
+  end
+
+  @doc """
+  Load the MNIST labels from the given file
+  and return a matrix.
+  """
+  @spec load_labels(Path.t()) :: Nx.Tensor.t()
+  def load_labels(filename) do
+    # Open and unzip the file of labels
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_labels::32, labels_binary::binary>> = :zlib.gunzip(binary)
+
+      # Create a tensor from the binary and
+      # reshape the list of labels into a one-column matrix.
+      labels_binary
+      |> Nx.from_binary({:u, 8})
+      |> Nx.reshape({n_labels, 1})
+    end
+  end
+
+  @doc """
+  Load the MNIST images from the given file
+  and return a matrix.
+  """
+  @spec load_images(Path.t()) :: Nx.Tensor.t()
+  def load_images(filename) do
+    # Open and unzip the file of images
+    with {:ok, binary} <- File.read(filename) do
+      <<_::32, n_images::32, n_rows::32, n_cols::32, images_binary::binary>> =
+        :zlib.gunzip(binary)
+
+      # Create a tensor from the binary and
+      # reshape the pixels into a matrix where each line is an image.
+      images_binary
+      |> Nx.from_binary({:u, 8})
+      |> Nx.reshape({n_images, n_cols * n_rows})
+    end
+  end
+end
+```
+
+### Neural Network implementation
+
+_The neural network is based on the one implemented in Chapter 13._
+
+```elixir
+defmodule C15.NeuralNetwork do
+  import Nx.Defn
+
+  defn sigmoid(z) do
+    Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
+  end
+
+  defn softmax(logits) do
+    exponentials = Nx.exp(logits)
+
+    Nx.divide(
+      exponentials,
+      Nx.sum(exponentials, axes: [1]) |> Nx.reshape({:auto, 1})
+    )
+  end
+
+  defn sigmoid_gradient(sigmoid) do
+    Nx.multiply(sigmoid, 1 - sigmoid)
+  end
+
+  defn loss(y, y_hat) do
+    -Nx.sum(y * Nx.log(y_hat)) / elem(Nx.shape(y), 0)
+  end
+
+  defn prepend_bias(x) do
+    bias = Nx.broadcast(1, {elem(Nx.shape(x), 0), 1})
+
+    # Insert a column of 1s in the position 0 of x.
+    # ("axis: 1" stands for: "insert a column, not a row")
+    Nx.concatenate([bias, x], axis: 1)
+  end
+
+  defn forward(x, weight1, weight2) do
+    h = sigmoid(Nx.dot(prepend_bias(x), weight1))
+    y_hat = softmax(Nx.dot(prepend_bias(h), weight2))
+
+    {y_hat, h}
+  end
+
+  defn back(x, y, y_hat, weight2, h) do
+    w2_gradient =
+      Nx.dot(
+        Nx.transpose(prepend_bias(h)),
+        Nx.subtract(y_hat, y)
+      ) / elem(Nx.shape(x), 0)
+
+    w1_gradient =
+      Nx.dot(
+        Nx.transpose(prepend_bias(x)),
+        Nx.dot(y_hat - y, Nx.transpose(weight2[1..-1//1])) * sigmoid_gradient(h)
+      ) / elem(Nx.shape(x), 0)
+
+    {w1_gradient, w2_gradient}
+  end
+
+  defn classify(x, weight1, weight2) do
+    {y_hat, _h} = forward(x, weight1, weight2)
+    labels = Nx.argmax(y_hat, axis: 1)
+    Nx.reshape(labels, {:auto, 1})
+  end
+
+  defn initialize_weights(opts \\ []) do
+    opts = keyword!(opts, [:w1_shape, :w2_shape])
+
+    mean = 0.0
+    std_deviation = 0.01
+    weight1 = Nx.random_normal(opts[:w1_shape], mean, std_deviation)
+    weight2 = Nx.random_normal(opts[:w2_shape], mean, std_deviation)
+
+    {weight1, weight2}
+  end
+
+  def prepare_batches(x_train, y_train, batch_size) do
+    x_batches = Nx.to_batched_list(x_train, batch_size)
+    y_batches = Nx.to_batched_list(y_train, batch_size)
+
+    {x_batches, y_batches}
+  end
+
+  def report(epoch, batch, x_train, y_train, x_test, y_test, weight1, weight2) do
+    {y_hat, _h} = forward(x_train, weight1, weight2)
+    training_loss = loss(y_train, y_hat) |> Nx.to_number()
+    classifications = classify(x_test, weight1, weight2)
+    accuracy = Nx.multiply(Nx.mean(Nx.equal(classifications, y_test)), 100.0) |> Nx.to_number()
+
+    IO.puts("#{epoch}-#{batch} > Loss: #{training_loss}, Accuracy: #{accuracy}%")
+
+    {training_loss, accuracy}
+  end
+
+  def train(x_train, y_train, x_test, y_test, n_hidden_nodes, epochs, batch_size, lr) do
+    n_input_variables = elem(Nx.shape(x_train), 1)
+    n_classes = elem(Nx.shape(y_train), 1)
+
+    {initial_weight_1, initial_weight_2} =
+      initialize_weights(
+        w1_shape: {n_input_variables + 1, n_hidden_nodes},
+        w2_shape: {n_hidden_nodes + 1, n_classes}
+      )
+
+    {x_batches, y_batches} = prepare_batches(x_train, y_train, batch_size)
+
+    for epoch <- 0..(epochs - 1),
+        batch <- 0..(length(x_batches) - 1),
+        reduce: {initial_weight_1, initial_weight_2} do
+      {w1, w2} ->
+        {updated_w1, updated_w2} =
+          step(Enum.at(x_batches, batch), Enum.at(y_batches, batch), w1, w2, lr)
+
+        {_loss, _accuracy} =
+          report(epoch, batch, x_train, y_train, x_test, y_test, updated_w1, updated_w2)
+
+        {updated_w1, updated_w2}
+    end
+  end
+
+  defn step(x_batch, y_batch, w1, w2, lr) do
+    {y_hat, h} = forward(x_batch, w1, w2)
+    {w1_gradient, w2_gradient} = back(x_batch, y_batch, y_hat, w2, h)
+    w1 = w1 - w1_gradient * lr
+    w2 = w2 - w2_gradient * lr
+
+    {w1, w2}
+  end
+end
+```
+
+### Regular MNIST vs Standardized MNIST
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Regular MNIST
+
+```elixir
+%{
+  x_train: x_train_non_standardized,
+  x_test: x_test_non_standardized,
+  x_validation: x_validation_non_standardized,
+  y_train: y_train,
+  y_test: y_test,
+  y_validation: y_validation
+} = C15.MNISTStandardized.load(skip_standardization: true)
+```
+
+```elixir
+n_hidden_nodes = 200
+epochs = 2
+batch_size = 60
+learning_rate = 0.1
+
+{_w1, _w2} =
+  C15.NeuralNetwork.train(
+    x_train_non_standardized,
+    y_train,
+    x_validation_non_standardized,
+    y_validation,
+    n_hidden_nodes,
+    epochs,
+    batch_size,
+    learning_rate
+  )
+```
+
+### Standardized MNIST
+
+```elixir
+%{
+  x_train: x_train,
+  x_test: x_test,
+  x_validation: x_validation,
+  y_train: y_train,
+  y_test: y_test,
+  y_validation: y_validation
+} = C15.MNISTStandardized.load()
+```
+
+```elixir
+n_hidden_nodes = 200
+epochs = 2
+batch_size = 60
+learning_rate = 0.1
+
+{_w1, _w2} =
+  C15.NeuralNetwork.train(
+    x_train,
+    y_train,
+    x_validation,
+    y_validation,
+    n_hidden_nodes,
+    epochs,
+    batch_size,
+    learning_rate
+  )
+```
+
+## Tuning Hyperparameters
+
+### Neural Network implementation
+
+This `train/1` replaces the previous one, and it differs from it in a few ways:
+
+* it runs for a specified time, rather than a specified number of epochs;
+* it runs quietly instead of reporting the loss and accuracy at each step;
+* at each step it stores the loss and time passed, and finally returns those
+  histories to the caller;
+* it also returns the number of training epochs and the total number of
+  gradient descent steps.
+
+```elixir
+defmodule C15.NeuralNetworkWithTimeout do
+  @moduledoc """
+  This implementation extends the previous one `C15.NeuralNetwork` and
+  it is based on the one implemented in Chapter 13.
+  """
+
+  def train(
+        x_train,
+        y_train,
+        _x_validation,
+        _y_validation,
+        n_hidden_nodes,
+        lr,
+        batch_size,
+        timeout_after_in_seconds
+      ) do
+    n_input_variables = elem(Nx.shape(x_train), 1)
+    n_classes = elem(Nx.shape(y_train), 1)
+
+    {initial_weight_1, initial_weight_2} =
+      C15.NeuralNetwork.initialize_weights(
+        w1_shape: {n_input_variables + 1, n_hidden_nodes},
+        w2_shape: {n_hidden_nodes + 1, n_classes}
+      )
+
+    {x_batches, y_batches} = C15.NeuralNetwork.prepare_batches(x_train, y_train, batch_size)
+
+    now = DateTime.utc_now()
+
+    initial_state = %{
+      w1: initial_weight_1,
+      w2: initial_weight_2,
+      losses: [],
+      times: [],
+      steps: 0,
+      epochs: 0,
+      batch: 0,
+      started_at: now,
+      timeout_at: DateTime.add(now, timeout_after_in_seconds, :second)
+    }
+
+    do_train(x_train, y_train, x_batches, y_batches, lr, initial_state)
+  end
+
+  defp do_train(
+         x_train,
+         y_train,
+         x_batches,
+         y_batches,
+         lr,
+         %{w1: w1, w2: w2, timeout_at: timeout_at, batch: batch} = state
+       ) do
+    updated_state = compute_loss_and_update_state(state, x_train, y_train, w1, w2)
+
+    cond do
+      DateTime.compare(DateTime.utc_now(), timeout_at) == :gt ->
+        updated_state
+
+      batch > length(x_batches) - 1 ->
+        do_train(
+          x_train,
+          y_train,
+          x_batches,
+          y_batches,
+          lr,
+          %{updated_state | batch: 0, epochs: state.epochs + 1}
+        )
+
+      true ->
+        {updated_w1, updated_w2} =
+          C15.NeuralNetwork.step(Enum.at(x_batches, batch), Enum.at(y_batches, batch), w1, w2, lr)
+
+        do_train(
+          x_train,
+          y_train,
+          x_batches,
+          y_batches,
+          lr,
+          %{
+            updated_state
+            | w1: updated_w1,
+              w2: updated_w2,
+              batch: batch + 1,
+              steps: state.steps + 1
+          }
+        )
+    end
+  end
+
+  def compute_loss_and_update_state(state, x_train, y_train, w1, w2) do
+    {y_hat, _h} = C15.NeuralNetwork.forward(x_train, w1, w2)
+    training_loss = C15.NeuralNetwork.loss(y_train, y_hat) |> Nx.to_number()
+
+    %{
+      state
+      | losses: state.losses ++ [training_loss],
+        times: state.times ++ [DateTime.utc_now()]
+    }
+  end
+end
+```
+
+Utility for comparing the results of the different trainings.
+
+```elixir
+defmodule C15.Comparator do
+  alias VegaLite, as: Vl
+
+  # results_with_label :: [{training_result_map, label}, ...]
+  def plot(results_with_label) do
+    all_plot_inputs = Enum.map(results_with_label, &plot_inputs/1)
+
+    Vl.new(width: 600, height: 400)
+    |> Vl.layers(
+      Enum.map(all_plot_inputs, fn inputs ->
+        Vl.new()
+        |> Vl.data_from_values(inputs)
+        |> Vl.mark(:line)
+        |> Vl.encode_field(:x, "time", title: "time (seconds)", type: :quantitative)
+        |> Vl.encode_field(:y, "loss", title: "loss", type: :quantitative)
+        |> Vl.encode(:color, field: "type")
+        |> Vl.encode(:stroke_dash, field: "type")
+      end)
+    )
+  end
+
+  defp plot_inputs({result, label}) do
+    %{losses: losses, times: times, epochs: epochs, steps: steps, started_at: started_at} = result
+
+    IO.puts(
+      "Training #{label} Loss: #{Enum.at(losses, -1)} (#{epochs} epochs completed, #{steps} total steps)"
+    )
+
+    Enum.zip_with([losses, times], fn [loss, time] ->
+      %{
+        type: label,
+        loss: loss,
+        time: DateTime.diff(time, started_at, :millisecond) / 1000
+      }
+    end)
+  end
+end
+```
+
+### Tuning the Number of Hidden Nodes
+
+```elixir
+batch_size = 128
+lr = 0.1
+timeout_after_in_seconds = 60 * 10
+
+n_hidden_nodes_to_compare = [10, 100, 400, 1000]
+
+n_hidden_nodes_training_results =
+  Enum.map(n_hidden_nodes_to_compare, fn n_hidden_nodes ->
+    result =
+      C15.NeuralNetworkWithTimeout.train(
+        x_train,
+        y_train,
+        x_validation,
+        y_validation,
+        n_hidden_nodes,
+        lr,
+        batch_size,
+        timeout_after_in_seconds
+      )
+
+    {result, "h=#{n_hidden_nodes}"}
+  end)
+
+C15.Comparator.plot(n_hidden_nodes_training_results)
+```
+
+### Tuning the Learning Rate
+
+```elixir
+batch_size = 128
+n_hidden_nodes = 100
+timeout_after_in_seconds = 60 * 10
+
+lr_to_compare = [0.001, 0.01, 0.1, 1]
+
+lr_training_results =
+  Enum.map(lr_to_compare, fn lr ->
+    result =
+      C15.NeuralNetworkWithTimeout.train(
+        x_train,
+        y_train,
+        x_validation,
+        y_validation,
+        n_hidden_nodes,
+        lr,
+        batch_size,
+        timeout_after_in_seconds
+      )
+
+    {result, "lr=#{lr}"}
+  end)
+
+C15.Comparator.plot(lr_training_results)
+```
+
+### Tuning the Batch Size
+
+```elixir
+n_hidden_nodes = 100
+lr = 1
+timeout_after_in_seconds = 60 * 5
+
+# 60_000 - batch GD, all the examples in one batch
+batch_sizes_to_compare = [60_000, 256, 128, 64]
+
+batch_size_training_results =
+  Enum.map(batch_sizes_to_compare, fn batch_size ->
+    result =
+      C15.NeuralNetworkWithTimeout.train(
+        x_train,
+        y_train,
+        x_validation,
+        y_validation,
+        n_hidden_nodes,
+        lr,
+        batch_size,
+        timeout_after_in_seconds
+      )
+
+    {result, "batch_size=#{batch_size}"}
+  end)
+
+C15.Comparator.plot(batch_size_training_results)
+```
+
+## The Final Test
+
+We've trained our network on the _training_ set and measuring its performance on the _validation_ set. It's time to see how it perform with the _test_ set using the hyperparameters we've found in the previous sections.
+
+```elixir
+n_hidden_nodes = 100
+epochs = 10
+batch_size = 256
+lr = 1
+
+C15.NeuralNetwork.train(x_train, y_train, x_test, y_test, n_hidden_nodes, epochs, batch_size, lr)
+```
