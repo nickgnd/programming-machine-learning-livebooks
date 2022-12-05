@@ -195,19 +195,27 @@ defmodule C13.ClassifierWithTimeSeries do
     {x_batches, y_batches}
   end
 
-  def update_series_in_state(state, x_train, y_train, w1, w2) do
+  def compute_loss_and_update_state(state, x_train, y_train, w1, w2) do
     {y_hat, _h} = forward(x_train, w1, w2)
     training_loss = loss(y_train, y_hat) |> Nx.to_number()
 
     %{
       state
       | losses: state.losses ++ [training_loss],
-        times: state.times ++ [DateTime.utc_now()],
-        steps: state.steps + 1
+        times: state.times ++ [DateTime.utc_now()]
     }
   end
 
-  def train(x_train, y_train, _x_test, _y_test, n_hidden_nodes, batch_size, lr, timeout_after) do
+  def train(
+        x_train,
+        y_train,
+        _x_test,
+        _y_test,
+        n_hidden_nodes,
+        batch_size,
+        lr,
+        timeout_after_in_seconds
+      ) do
     n_input_variables = elem(Nx.shape(x_train), 1)
     n_classes = elem(Nx.shape(y_train), 1)
 
@@ -230,7 +238,7 @@ defmodule C13.ClassifierWithTimeSeries do
       epochs: 0,
       batch: 0,
       start_time: now,
-      timeout_at: DateTime.add(now, timeout_after, :second)
+      timeout_at: DateTime.add(now, timeout_after_in_seconds, :second)
     }
 
     do_train(x_train, y_train, x_batches, y_batches, lr, initial_state)
@@ -244,7 +252,7 @@ defmodule C13.ClassifierWithTimeSeries do
          lr,
          %{w1: w1, w2: w2, timeout_at: timeout_at, batch: batch} = state
        ) do
-    updated_state = update_series_in_state(state, x_train, y_train, w1, w2)
+    updated_state = compute_loss_and_update_state(state, x_train, y_train, w1, w2)
 
     cond do
       DateTime.compare(DateTime.utc_now(), timeout_at) == :gt ->
@@ -296,8 +304,8 @@ end
 hidden_nodes = 200
 learning_rate = 0.01
 # In the book is 1800 seconds for each training
-# timeout_after = 1800
-timeout_after = 150
+# timeout_after_in_seconds = 1800
+timeout_after_in_seconds = 150
 
 # Stochastic GD
 stochastic_gd_size = 1
@@ -311,7 +319,7 @@ stochastic_gd_result =
     hidden_nodes,
     stochastic_gd_size,
     learning_rate,
-    timeout_after
+    timeout_after_in_seconds
   )
 
 # Batch size 32
@@ -324,7 +332,7 @@ batch32_result =
     hidden_nodes,
     32,
     learning_rate,
-    timeout_after
+    timeout_after_in_seconds
   )
 
 # Batch size 128
@@ -337,7 +345,7 @@ batch128_result =
     hidden_nodes,
     128,
     learning_rate,
-    timeout_after
+    timeout_after_in_seconds
   )
 
 # Batch GD
@@ -352,7 +360,7 @@ batch_gd_result =
     hidden_nodes,
     batch_gd_size,
     learning_rate,
-    timeout_after
+    timeout_after_in_seconds
   )
 ```
 
