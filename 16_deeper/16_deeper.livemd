@@ -1,16 +1,20 @@
 # Chapter 16: A Deeper Kind of Network
 
 ```elixir
-Mix.install([
-  {:exla, "~> 0.3"},
-  {:nx, "~> 0.3"},
-  {:kino, "~> 0.6.2"},
-  {:kino_vega_lite, "~> 0.1.3"},
-  {:vega_lite, "~> 0.1.6"}
-])
-
-# Set the backend
-Nx.Defn.global_default_options(compiler: EXLA)
+Mix.install(
+  [
+    {:exla, "~> 0.4"},
+    {:nx, "~> 0.4"},
+    # TODO: use next released version
+    # {:axon, "~> 0.3.1"},
+    {:axon, git: "https://github.com/elixir-nx/axon", branch: "main"},
+    {:kino, "~> 0.8.0"},
+    {:kino_vega_lite, "~> 0.1.7"},
+    {:vega_lite, "~> 0.1.6"},
+    {:table_rex, "~> 3.1.1"}
+  ],
+  config: [nx: [default_backend: EXLA.Backend]]
+)
 ```
 
 ## The Echidna Dataset
@@ -19,7 +23,6 @@ Nx.Defn.global_default_options(compiler: EXLA)
 defmodule C16.EchidnaDataset do
   import Nx.Defn
 
-  # @filename Path.join([System.fetch_env!("LIVEBOOK_HOME"), "data", "echidna.txt"])
   @filename Path.join(["data", "echidna.txt"])
 
   @doc """
@@ -35,7 +38,8 @@ defmodule C16.EchidnaDataset do
 
       tensor =
         binary
-        |> to_tensor()
+        |> parse()
+        |> Nx.tensor()
         |> Nx.shuffle(axis: 0)
 
       # all the rows, only first 2 columns
@@ -51,7 +55,7 @@ defmodule C16.EchidnaDataset do
     end
   end
 
-  defp to_tensor(binary) do
+  def parse(binary) do
     binary
     |> String.split("\n", trim: true)
     |> Enum.slice(1..-1)
@@ -60,7 +64,6 @@ defmodule C16.EchidnaDataset do
       |> String.split(" ", trim: true)
       |> Enum.map(&parse_float/1)
     end)
-    |> Nx.tensor()
   end
 
   # Normalization (Min-Max Scalar)
@@ -97,6 +100,27 @@ defmodule C16.EchidnaDataset do
 end
 ```
 
+### Visualize the Echidna dataset
+
+```elixir
+alias VegaLite, as: Vl
+
+dataset =
+  C16.EchidnaDataset.read_file()
+  |> then(fn {:ok, binary} -> C16.EchidnaDataset.parse(binary) end)
+  |> Enum.map(fn [input_a, input_b, label] ->
+    %{input_a: input_a, input_b: input_b, label: label}
+  end)
+
+Vl.new(width: 600, height: 400)
+|> Vl.data_from_values(dataset)
+|> Vl.mark(:point, filled: true, tooltip: true)
+|> Vl.encode_field(:x, "input_a", type: :quantitative)
+|> Vl.encode_field(:y, "input_b", type: :quantitative)
+|> Vl.encode(:color, field: "label", scale: %{"range" => ["blue", "green"]})
+|> Vl.encode(:shape, field: "label", scale: %{"range" => ["square", "triangle-up"]})
+```
+
 ### Load the data
 
 Load the data and split the input/label tensors in train, validate and test sets to use in the different stages.
@@ -106,6 +130,308 @@ Load the data and split the input/label tensors in train, validate and test sets
 
 size = (elem(Nx.shape(x_all), 0) / 3) |> ceil()
 
-[x_train, x_validate, x_test] = Nx.to_batched(x_all, size) |> Enum.to_list()
-[y_train, y_validate, y_test] = Nx.to_batched(y_all, size) |> Enum.to_list()
+[x_train, x_validation, x_test] = Nx.to_batched(x_all, size) |> Enum.to_list()
+[y_train, y_validation, y_test] = Nx.to_batched(y_all, size) |> Enum.to_list()
+
+data = %{
+  x_train: x_train,
+  x_validation: x_validation,
+  x_test: x_test,
+  y_train: y_train,
+  y_validation: y_validation,
+  y_test: y_test
+}
+```
+
+## Building a Neural Network with Axon
+
+1. The Echidna dataset has two input variables, so we only need two input nodes.
+2. The Echidna dataset has two classes, so we only need two output nodes.
+3. The number of hidden nodes is a hyperparameter that we can change later. To begin with, let's go with 100 hidden nodes.
+4. Axon will add a bias node to the input and hidden layer
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Prepare the data
+
+```elixir
+x_train = data.x_train
+x_validation = data.x_validation
+
+# One-hot encode the labels
+y_train = Nx.equal(data.y_train, Nx.tensor(Enum.to_list(0..1)))
+y_validation = Nx.equal(data.y_validation, Nx.tensor(Enum.to_list(0..1)))
+```
+
+### Creating the model
+
+<!-- livebook:{"break_markdown":true} -->
+
+* Let's create a sequential model
+
+> Sequential models are named after the sequential nature in which data flows through them. Sequential models transform the input with sequential, successive transformations.
+
+👆 Axon does not need a distinct sequential construct. To create a sequential model, you just pass Axon models through successive transformations in the Axon API.
+
+* A layer is _dense_ when each of its nodes is connected to all the nodes in a neighboring layer.
+
+* Note that for each layer, we specify the activation function that comes before the layer, not after it.
+
+```elixir
+model =
+  Axon.input("data", shape: Nx.shape(x_train))
+  |> Axon.dense(100, activation: :sigmoid)
+  |> Axon.dense(2, activation: :softmax)
+```
+
+#### Visualize the model
+
+```elixir
+template = Nx.template(Nx.shape(x_train), :f32)
+
+Axon.Display.as_table(model, template) |> IO.puts()
+
+Axon.Display.as_graph(model, template)
+```
+
+### Training the Network
+
+```elixir
+batch_size = 25
+
+train_inputs = Nx.to_batched(x_train, batch_size)
+train_labels = Nx.to_batched(y_train, batch_size)
+train_batches = Stream.zip(train_inputs, train_labels)
+
+validation_data = [{x_validation, y_validation}]
+
+# In the book, the epoch are 30_000, but
+# the training is taking way to long :/
+# https://github.com/elixir-nx/axon/issues/430
+epochs = 500
+
+params =
+  model
+  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001))
+  |> Axon.Loop.metric(:accuracy)
+  |> Axon.Loop.validate(model, validation_data)
+  |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
+```
+
+### Drawing the Boundary
+
+```elixir
+defmodule C16.Plotter do
+  @moduledoc """
+  The module exposes an API to draw the echidna dataset
+  and the predictions based on the params returned from
+  the training.
+
+  NOTE: since the training has been done on the normalized inputs,
+  instead of using the original inputs from the Echidna dataset,
+  the inputs and labels are extracted from the tensors in oreder
+  to be in scale with the predictions.
+  """
+
+  alias VegaLite, as: Vl
+
+  def plot(model, params) do
+    Vl.new(width: 600, height: 400)
+    |> Vl.layers([
+      # Grid
+      prediction_layer(model, params),
+      # Inputs
+      normalized_dataset_layer()
+    ])
+    |> Vl.resolve(:scale, x: :shared, y: :shared, color: :independent)
+  end
+
+  defp prediction_layer(model, params) do
+    %{x: x_all} = C16.EchidnaDataset.load()
+
+    # Build the grid 
+    grid =
+      x_all
+      |> boundaries()
+      |> build_grid()
+
+    labels =
+      model
+      |> Axon.predict(params, Nx.tensor(grid), compiler: EXLA)
+      |> Nx.argmax(axis: 1)
+
+    # Add the labels to the grid dataset
+    data_with_labels =
+      Enum.zip_with([grid, Nx.to_flat_list(labels)], fn [[x, y], label] ->
+        %{x: x, y: y, label: label}
+      end)
+
+    Vl.new()
+    |> Vl.data_from_values(data_with_labels)
+    |> Vl.mark(:point)
+    |> Vl.encode_field(:x, "x", type: :quantitative)
+    |> Vl.encode_field(:y, "y", type: :quantitative)
+    |> Vl.encode(:color, field: "label", scale: %{"range" => ["lightblue", "aquamarine"]})
+  end
+
+  defp build_grid(%{x_max: x_max, x_min: x_min, y_max: y_max, y_min: y_min}) do
+    resolution = 200
+    x_step = (x_max - x_min) / resolution
+    y_step = (y_max - y_min) / resolution
+
+    for i <- 0..(resolution - 1), j <- 0..(resolution - 1) do
+      [x_min + x_step * i, y_min + y_step * j]
+    end
+  end
+
+  defp boundaries(inputs) do
+    # Get x from the tensor
+    x = Nx.slice_along_axis(inputs, 1, 1, axis: 1)
+
+    # Get y from the tensor
+    y = Nx.slice_along_axis(inputs, 2, 1, axis: 1)
+
+    # Compute the grid bounderies 
+    x_min = x |> Nx.to_flat_list() |> Enum.min()
+    x_max = x |> Nx.to_flat_list() |> Enum.max()
+    y_min = y |> Nx.to_flat_list() |> Enum.min()
+    y_max = y |> Nx.to_flat_list() |> Enum.max()
+
+    padding = 0.05
+
+    %{
+      x_min: x_min - x_min * padding,
+      x_max: x_max + x_max * padding,
+      y_min: y_min - y_min * padding,
+      y_max: y_max + y_max * padding
+    }
+  end
+
+  defp normalized_dataset_layer() do
+    %{x: x_all, y: y_all} = C16.EchidnaDataset.load()
+
+    normalized_inputs = to_list(x_all)
+    normalized_labels = to_list(y_all)
+
+    dataset =
+      Enum.zip(normalized_inputs, normalized_labels)
+      |> Enum.map(fn {[input_a, input_b], [label]} ->
+        %{input_a: input_a, input_b: input_b, label: label}
+      end)
+
+    Vl.new()
+    |> Vl.data_from_values(dataset)
+    |> Vl.mark(:point, filled: true, tooltip: true)
+    |> Vl.encode_field(:x, "input_a", type: :quantitative)
+    |> Vl.encode_field(:y, "input_b", type: :quantitative)
+    |> Vl.encode(:color, field: "label", scale: %{"range" => ["blue", "green"]})
+    |> Vl.encode(:shape, field: "label", scale: %{"range" => ["square", "triangle-up"]})
+  end
+
+  defp to_list(tensor) do
+    # utility to transform a tensor to
+    # a list keeping the nesting
+    tensor
+    |> Nx.to_batched(1)
+    |> Enum.map(&Nx.to_flat_list/1)
+  end
+end
+```
+
+```elixir
+# NOTE: the boundaries won't be as precise as in the same plot in the book because
+# the model has been trained for less time (epochs).
+
+# TODO: why it does not predict any 1? I remember it did it :/
+C16.Plotter.plot(model, params)
+```
+
+### After 30_000 epochs
+
+Training the model for `30_000` epochs is taking way to long to await in this livebook.
+I therefore left the model training for the whole day and stored the params in a file.
+
+```bash
+Epoch: 29995, Batch: 10, accuracy: 0.9527273 loss: 0.2229274
+Batch: 0, accuracy: 0.8947368 loss: 0.2053576
+
+Batch: 0, accuracy: 0.8947368 loss: 0.2053561
+
+Batch: 0, accuracy: 0.8947368 loss: 0.2053546
+
+Batch: 0, accuracy: 0.8947368 loss: 0.2053531
+
+Batch: 0, accuracy: 0.8947368 loss: 0.2053516
+"TRAINING CONCLUDED IN 805 minutes."
+```
+
+👉 Validation: accuracy: 0.8947368 loss: 0.2053516
+
+Let's load it and see the boundaries.
+
+```elixir
+params_after_30000_epochs =
+  File.read!("./16_deeper/model1_params.term")
+  |> Nx.deserialize()
+
+C16.Plotter.plot(model, params_after_30000_epochs)
+```
+
+## Making Deep
+
+```elixir
+new_model =
+  Axon.input("data", shape: Nx.shape(x_train))
+  |> Axon.dense(100, activation: :sigmoid)
+  |> Axon.dense(30, activation: :sigmoid)
+  |> Axon.dense(2, activation: :softmax)
+
+Axon.Display.as_graph(new_model, template)
+```
+
+### Train the Network
+
+```elixir
+# epochs are defined in the previous model's training
+
+new_params =
+  new_model
+  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001))
+  |> Axon.Loop.metric(:accuracy)
+  |> Axon.Loop.validate(new_model, validation_data)
+  |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
+```
+
+```elixir
+C16.Plotter.plot(new_model, new_params)
+```
+
+### After 30_000 epochs
+
+Same discourse as before, I left the model training for the whole day and stored the final params in a file.
+
+<!-- livebook:{"break_markdown":true} -->
+
+```bash
+Epoch: 29995, Batch: 10, accuracy: 0.4836363 loss: NaN
+Batch: 0, accuracy: 0.4701754 loss: NaN
+
+Batch: 0, accuracy: 0.4701754 loss: NaN
+
+Batch: 0, accuracy: 0.4701754 loss: NaN
+
+Batch: 0, accuracy: 0.4701754 loss: NaN
+
+Batch: 0, accuracy: 0.4701754 loss: NaN
+"TRAINING CONCLUDED IN 866 minutes."
+```
+
+👆 Not sure why the loss is "NaN" and the accuracy is low compared to the book 🙈.
+
+```elixir
+params_2_after_30000_epochs =
+  File.read!("./16_deeper/model2_params.term")
+  |> Nx.deserialize()
+
+C16.Plotter.plot(new_model, params_2_after_30000_epochs)
 ```
