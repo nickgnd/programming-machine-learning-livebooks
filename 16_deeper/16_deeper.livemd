@@ -39,8 +39,8 @@ defmodule C16.EchidnaDataset do
       tensor =
         binary
         |> parse()
+        |> Enum.shuffle()
         |> Nx.tensor()
-        |> Nx.shuffle(axis: 0)
 
       # all the rows, only first 2 columns
       x = tensor[[0..-1//1, 0..1//1]] |> normalize_inputs()
@@ -235,20 +235,18 @@ defmodule C16.Plotter do
 
   alias VegaLite, as: Vl
 
-  def plot(model, params) do
+  def plot(%{x: x_all, y: y_all}, model, params) do
     Vl.new(width: 600, height: 400)
     |> Vl.layers([
       # Grid
-      prediction_layer(model, params),
+      prediction_layer(x_all, model, params),
       # Inputs
-      normalized_dataset_layer()
+      normalized_dataset_layer(x_all, y_all)
     ])
     |> Vl.resolve(:scale, x: :shared, y: :shared, color: :independent)
   end
 
-  defp prediction_layer(model, params) do
-    %{x: x_all} = C16.EchidnaDataset.load()
-
+  defp prediction_layer(x_all, model, params) do
     # Build the grid 
     grid =
       x_all
@@ -307,9 +305,7 @@ defmodule C16.Plotter do
     }
   end
 
-  defp normalized_dataset_layer() do
-    %{x: x_all, y: y_all} = C16.EchidnaDataset.load()
-
+  defp normalized_dataset_layer(x_all, y_all) do
     normalized_inputs = to_list(x_all)
     normalized_labels = to_list(y_all)
 
@@ -340,10 +336,9 @@ end
 
 ```elixir
 # NOTE: the boundaries won't be as precise as in the same plot in the book because
-# the model has been trained for less time (epochs).
+# the model has been trained for fewer epochs.
 
-# TODO: why it does not predict any 1? I remember it did it :/
-C16.Plotter.plot(model, params)
+C16.Plotter.plot(%{x: x_all, y: y_all}, model, params)
 ```
 
 ### After 30_000 epochs
@@ -374,7 +369,7 @@ params_after_30000_epochs =
   File.read!("./16_deeper/model1_params.term")
   |> Nx.deserialize()
 
-C16.Plotter.plot(model, params_after_30000_epochs)
+C16.Plotter.plot(%{x: x_all, y: y_all}, model, params_after_30000_epochs)
 ```
 
 ## Making Deep
@@ -403,7 +398,7 @@ new_params =
 ```
 
 ```elixir
-C16.Plotter.plot(new_model, new_params)
+C16.Plotter.plot(%{x: x_all, y: y_all}, new_model, new_params)
 ```
 
 ### After 30_000 epochs
@@ -426,12 +421,12 @@ Batch: 0, accuracy: 0.4701754 loss: NaN
 "TRAINING CONCLUDED IN 866 minutes."
 ```
 
-👆 Not sure why the loss is "NaN" and the accuracy is low compared to the book 🙈.
+👆 Not sure why the loss is "NaN" and the accuracy is lower compared to the book 🙈.
 
 ```elixir
 params_2_after_30000_epochs =
   File.read!("./16_deeper/model2_params.term")
   |> Nx.deserialize()
 
-C16.Plotter.plot(new_model, params_2_after_30000_epochs)
+C16.Plotter.plot(%{x: x_all, y: y_all}, new_model, params_2_after_30000_epochs)
 ```
