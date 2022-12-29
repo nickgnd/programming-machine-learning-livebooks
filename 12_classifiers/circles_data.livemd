@@ -1,16 +1,16 @@
 # Circles dataset
 
 ```elixir
-Mix.install([
-  {:exla, "~> 0.3"},
-  {:nx, "~> 0.3"},
-  {:kino, "~> 0.6.2"},
-  {:kino_vega_lite, "~> 0.1.3"},
-  {:vega_lite, "~> 0.1.6"}
-])
-
-# Set the backend
-Nx.Defn.global_default_options(compiler: EXLA)
+Mix.install(
+  [
+    {:exla, "~> 0.3"},
+    {:nx, "~> 0.3"},
+    {:kino, "~> 0.6.2"},
+    {:kino_vega_lite, "~> 0.1.3"},
+    {:vega_lite, "~> 0.1.6"}
+  ],
+  config: [nx: [default_backend: EXLA.Backend]]
+)
 ```
 
 ## Read the data
@@ -231,10 +231,10 @@ y_max =
 padding = 0.05
 
 bounderies = %{
-  x_min: x_min - x_min * padding,
-  x_max: x_max + x_max * padding,
-  y_min: y_min - y_min * padding,
-  y_max: y_max + y_max * padding
+  x_min: x_min - abs(x_min * padding),
+  x_max: x_max + abs(x_max * padding),
+  y_min: y_min - abs(y_min * padding),
+  y_max: y_max + abs(y_max * padding)
 }
 ```
 
@@ -246,7 +246,7 @@ x_step = (x_max - x_min) / resolution
 y_step = (y_max - y_min) / resolution
 
 grid =
-  for i <- 0..(resolution - 1), j <- 0..(resolution - 1) do
+  for i <- 0..resolution, j <- 0..resolution do
     [x_min + x_step * i, y_min + y_step * j]
   end
 ```
@@ -501,10 +501,10 @@ y_max =
 padding = 0.05
 
 bounderies = %{
-  x_min: x_min - x_min * padding,
-  x_max: x_max + x_max * padding,
-  y_min: y_min - y_min * padding,
-  y_max: y_max + y_max * padding
+  x_min: x_min - abs(x_min * padding),
+  x_max: x_max + abs(x_max * padding),
+  y_min: y_min - abs(y_min * padding),
+  y_max: y_max + abs(y_max * padding)
 }
 ```
 
@@ -516,7 +516,7 @@ x_step = (x_max - x_min) / resolution
 y_step = (y_max - y_min) / resolution
 
 grid =
-  for i <- 0..(resolution - 1), j <- 0..(resolution - 1) do
+  for i <- 0..resolution, j <- 0..resolution do
     [x_min + x_step * i, y_min + y_step * j]
   end
 ```
