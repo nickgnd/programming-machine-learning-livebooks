@@ -148,7 +148,7 @@ data = %{
 1. The Echidna dataset has two input variables, so we only need two input nodes.
 2. The Echidna dataset has two classes, so we only need two output nodes.
 3. The number of hidden nodes is a hyperparameter that we can change later. To begin with, let's go with 100 hidden nodes.
-4. Axon will add a bias node to the input and hidden layer
+4. Axon will add a bias nodes to the input and hidden layers
 
 <!-- livebook:{"break_markdown":true} -->
 
@@ -295,13 +295,13 @@ defmodule C16.Plotter do
     y_min = y |> Nx.to_flat_list() |> Enum.min()
     y_max = y |> Nx.to_flat_list() |> Enum.max()
 
-    padding = 0.05
+    padding = 0.1
 
     %{
-      x_min: x_min - x_min * padding,
-      x_max: x_max + x_max * padding,
-      y_min: y_min - y_min * padding,
-      y_max: y_max + y_max * padding
+      x_min: x_min - abs(x_min * padding),
+      x_max: x_max + abs(x_max * padding),
+      y_min: y_min - abs(y_min * padding),
+      y_max: y_max + abs(y_max * padding)
     }
   end
 
@@ -403,6 +403,8 @@ C16.Plotter.plot(%{x: x_all, y: y_all}, new_model, new_params)
 
 ### After 30_000 epochs
 
+> ⚠️ Something went wrong during the training: the final loss is "NaN" and the accuracy is lower compared to the book.
+
 Same discourse as before, I left the model training for the whole day and stored the final params in a file.
 
 <!-- livebook:{"break_markdown":true} -->
@@ -420,8 +422,6 @@ Batch: 0, accuracy: 0.4701754 loss: NaN
 Batch: 0, accuracy: 0.4701754 loss: NaN
 "TRAINING CONCLUDED IN 866 minutes."
 ```
-
-👆 Not sure why the loss is "NaN" and the accuracy is lower compared to the book 🙈.
 
 ```elixir
 params_2_after_30000_epochs =
