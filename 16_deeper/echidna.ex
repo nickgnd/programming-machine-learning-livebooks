@@ -2,9 +2,7 @@ Mix.install(
   [
     {:exla, "~> 0.4"},
     {:nx, "~> 0.4"},
-    # TODO: use next released version
-    # {:axon, "~> 0.3.1"},
-    {:axon, git: "https://github.com/elixir-nx/axon", branch: "main"},
+    {:axon, "~> 0.4"},
     {:kino, "~> 0.8.0"},
     {:kino_vega_lite, "~> 0.1.7"},
     {:vega_lite, "~> 0.1.6"},
@@ -16,7 +14,7 @@ Mix.install(
 defmodule C16.EchidnaDataset do
   import Nx.Defn
 
-  @filename Path.join(["data", "echidna.txt"])
+  @filename Path.join(["..", "data", "echidna.txt"])
 
   @doc """
   Loads the echidna dataset and returns the input `x` and label `y` tensors.
@@ -32,8 +30,8 @@ defmodule C16.EchidnaDataset do
       tensor =
         binary
         |> parse()
+        |> Enum.shuffle()
         |> Nx.tensor()
-        |> Nx.shuffle(axis: 0)
 
       # all the rows, only first 2 columns
       x = tensor[[0..-1//1, 0..1//1]] |> normalize_inputs()

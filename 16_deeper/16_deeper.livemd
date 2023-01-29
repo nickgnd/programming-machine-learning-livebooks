@@ -5,9 +5,7 @@ Mix.install(
   [
     {:exla, "~> 0.4"},
     {:nx, "~> 0.4"},
-    # TODO: use next released version
-    # {:axon, "~> 0.3.1"},
-    {:axon, git: "https://github.com/elixir-nx/axon", branch: "main"},
+    {:axon, "~> 0.4"},
     {:kino, "~> 0.8.0"},
     {:kino_vega_lite, "~> 0.1.7"},
     {:vega_lite, "~> 0.1.6"},
