@@ -1,0 +1,68 @@
+# Chapter 18: Beyond the Sigmoid
+
+```elixir
+Mix.install(
+  [
+    {:exla, "~> 0.4"},
+    {:nx, "~> 0.4"},
+    {:axon, "~> 0.4"},
+    {:kino, "~> 0.8.0"},
+    {:kino_vega_lite, "~> 0.1.7"},
+    {:vega_lite, "~> 0.1.6"}
+  ],
+  config: [nx: [default_backend: EXLA.Backend]]
+)
+```
+
+## ReLU
+
+```elixir
+relu_fn = fn z ->
+  if z <= 0 do
+    0
+  else
+    z
+  end
+end
+```
+
+```elixir
+dataset = Enum.map(-6..6, fn x -> %{x: x, y: relu_fn.(x)} end)
+```
+
+<!-- livebook:{"attrs":{"chart_title":"ReLU(z)","height":400,"layers":[{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"dataset","x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"y","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "ReLU(z)")
+|> VegaLite.data_from_values(dataset, only: ["x", "y"])
+|> VegaLite.mark(:line)
+|> VegaLite.encode_field(:x, "x", type: :quantitative)
+|> VegaLite.encode_field(:y, "y", type: :quantitative)
+```
+
+## Leaky ReLU
+
+```elixir
+leaky_relu_fn = fn z, alpha ->
+  if z <= 0 do
+    z * alpha
+  else
+    z
+  end
+end
+```
+
+```elixir
+alpha = 0.02
+dataset = Enum.map(-6..6, fn x -> %{x: x, y: leaky_relu_fn.(x, alpha)} end)
+```
+
+<!-- livebook:{"attrs":{"chart_title":"Leaky ReLU(z, alpha)","height":400,"layers":[{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"dataset","x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"y","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "Leaky ReLU(z, alpha)")
+|> VegaLite.data_from_values(dataset, only: ["x", "y"])
+|> VegaLite.mark(:line)
+|> VegaLite.encode_field(:x, "x", type: :quantitative)
+|> VegaLite.encode_field(:y, "y", type: :quantitative)
+```
