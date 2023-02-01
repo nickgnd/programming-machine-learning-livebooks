@@ -1,0 +1,173 @@
+# Chapter 19: beyond vanilla networks
+
+```elixir
+Mix.install(
+  [
+    {:exla, "~> 0.4"},
+    {:nx, "~> 0.4"},
+    {:nx_image, "~> 0.1.0"},
+    {:axon, "~> 0.4"},
+    {:scidata, "~> 0.1"},
+    {:kino, "~> 0.8.0"},
+    {:kino_vega_lite, "~> 0.1.7"},
+    {:vega_lite, "~> 0.1.6"}
+  ],
+  config: [nx: [default_backend: EXLA.Backend]]
+)
+```
+
+## The CIFAR-10 Dataset
+
+### What CIFAR-10 looks like
+
+```elixir
+{
+  {images_binary, images_type, images_shape},
+  {labels_binary, labels_type, labels_shape}
+} = Scidata.CIFAR10.download()
+```
+
+```elixir
+images =
+  images_binary
+  |> Nx.from_binary(images_type)
+  |> Nx.reshape({elem(images_shape, 0), 3, 32, 32}, names: [:n, :c, :h, :w])
+
+labels =
+  labels_binary
+  |> Nx.from_binary(labels_type)
+  |> Nx.new_axis(-1)
+
+columns = 8
+rows = 4
+
+# Compute random indeces
+indices =
+  {elem(images_shape, 0) - 1}
+  |> Nx.iota()
+  |> Nx.shuffle()
+  |> Nx.slice_along_axis(0, columns * rows)
+
+selected_images = Nx.take(images, indices)
+selected_labels = Nx.take(labels, indices)
+
+Kino.Layout.grid(
+  Enum.map(0..(columns * rows - 1), fn i ->
+    Kino.Layout.grid(
+      [
+        Kino.Markdown.new("class: #{selected_labels[i][0] |> Nx.to_number()}"),
+        selected_images[i]
+        # transpose the image since `Kino.Image.new` requires
+        # the following shape `{:h, :w, :c}`, while the original one is `{:c, :h, :w}`
+        |> Nx.transpose(axes: [:h, :w, :c])
+        |> NxImage.resize({100, 100}, method: :nearest)
+        |> Kino.Image.new()
+      ],
+      boxed: true,
+      columns: 1
+    )
+  end),
+  boxed: true,
+  columns: columns
+)
+```
+
+## Falling short of CIFAR
+
+#### Prepare the data
+
+```elixir
+defmodule Chapter19.CIFAR10 do
+  def load_data() do
+    {raw_images, raw_labels} = Scidata.CIFAR10.download()
+    {raw_test_images, raw_test_labels} = Scidata.CIFAR10.download_test()
+
+    train_images = transform_images(raw_images)
+    train_labels = transform_labels(raw_labels)
+    all_test_images = transform_images(raw_test_images)
+    all_test_labels = transform_labels(raw_test_labels)
+
+    {validation_images, test_images} = split(all_test_images)
+    {validation_labels, test_labels} = split(all_test_labels)
+
+    %{
+      train_images: train_images,
+      train_labels: train_labels,
+      validation_images: validation_images,
+      validation_labels: validation_labels,
+      test_images: test_images,
+      test_labels: test_labels
+    }
+  end
+
+  defp transform_images({bin, type, shape}) do
+    bin
+    |> Nx.from_binary(type)
+    |> Nx.reshape({elem(shape, 0), :auto})
+    |> Nx.divide(255.0)
+  end
+
+  defp transform_labels({bin, type, _}) do
+    bin
+    |> Nx.from_binary(type)
+    |> Nx.new_axis(-1)
+    |> Nx.equal(Nx.tensor(Enum.to_list(0..9)))
+  end
+
+  defp split(tensor) do
+    {x, _} = Nx.shape(tensor)
+    len = trunc(x / 2)
+    first_half = Nx.slice_along_axis(tensor, 0, len, axis: 0)
+    second_half = Nx.slice_along_axis(tensor, len + 1, len, axis: 0)
+    {first_half, second_half}
+  end
+end
+```
+
+Load the data and prepare the train batches and validation dataset.
+
+```elixir
+%{
+  train_images: train_images,
+  train_labels: train_labels,
+  validation_images: validation_images,
+  validation_labels: validation_labels,
+  test_images: test_images,
+  test_labels: test_labels
+} = Chapter19.CIFAR10.load_data()
+
+train_batches = Stream.zip(Nx.to_batched(train_images, 32), Nx.to_batched(train_labels, 32))
+validation_data = [{validation_images, validation_labels}]
+```
+
+### Build the model and train it
+
+```elixir
+epochs = 25
+
+model =
+  Axon.input("data")
+  |> Axon.dense(1200)
+  |> Axon.relu()
+  |> Axon.batch_norm()
+  |> Axon.dense(500)
+  |> Axon.relu()
+  |> Axon.batch_norm()
+  |> Axon.dense(200)
+  |> Axon.relu()
+  |> Axon.batch_norm()
+  |> Axon.dense(10, activation: :softmax)
+
+model
+|> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.adam())
+|> Axon.Loop.metric(:accuracy)
+|> Axon.Loop.validate(model, validation_data)
+|> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
+```
+
+Training completed in 2250 seconds ca.
+
+Results after 25 epochs:
+
+* accuracy: 0.8000934 - loss: 1.0527945
+* validation accuracy: 0.4326000 - validation loss: 9.4311628
