@@ -10,7 +10,8 @@ Mix.install(
     {:scidata, "~> 0.1"},
     {:kino, "~> 0.8.0"},
     {:kino_vega_lite, "~> 0.1.7"},
-    {:vega_lite, "~> 0.1.6"}
+    {:vega_lite, "~> 0.1.6"},
+    {:table_rex, "~> 3.1.1"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
@@ -171,3 +172,150 @@ Results after 25 epochs:
 
 * accuracy: 0.8000934 - loss: 1.0527945
 * validation accuracy: 0.4326000 - validation loss: 9.4311628
+
+## Running on Convolutions
+
+### Prepare the data
+
+Compared to the previous implementation, the images (inputs) are not flatten, but all the 3 dimensions (channel, height, width) are kept.
+
+```elixir
+defmodule Chapter19.CIFAR10Cnn do
+  def load_data() do
+    {raw_images, raw_labels} = Scidata.CIFAR10.download()
+    {raw_test_images, raw_test_labels} = Scidata.CIFAR10.download_test()
+
+    train_images = transform_images(raw_images)
+    train_labels = transform_labels(raw_labels)
+    all_test_images = transform_images(raw_test_images)
+    all_test_labels = transform_labels(raw_test_labels)
+
+    {validation_images, test_images} = split(all_test_images)
+    {validation_labels, test_labels} = split(all_test_labels)
+
+    %{
+      train_images: train_images,
+      train_labels: train_labels,
+      validation_images: validation_images,
+      validation_labels: validation_labels,
+      test_images: test_images,
+      test_labels: test_labels
+    }
+  end
+
+  defp transform_images({bin, type, shape}) do
+    bin
+    |> Nx.from_binary(type)
+    |> Nx.reshape({elem(shape, 0), 3, 32, 32}, names: [:n, :c, :h, :w])
+    |> Nx.transpose(axes: [:n, :h, :w, :c])
+    |> Nx.divide(255.0)
+  end
+
+  defp transform_labels({bin, type, _}) do
+    bin
+    |> Nx.from_binary(type)
+    |> Nx.new_axis(-1)
+    |> Nx.equal(Nx.tensor(Enum.to_list(0..9)))
+  end
+
+  defp split(%Nx.Tensor{shape: {n, _c, _h, _w}} = tensor) do
+    len = trunc(n / 2)
+    first_half = Nx.slice_along_axis(tensor, 0, len, axis: :n)
+    second_half = Nx.slice_along_axis(tensor, len + 1, len, axis: :n)
+    {first_half, second_half}
+  end
+
+  defp split(%Nx.Tensor{shape: {n, _}} = tensor) do
+    len = trunc(n / 2)
+    first_half = Nx.slice_along_axis(tensor, 0, len, axis: 0)
+    second_half = Nx.slice_along_axis(tensor, len + 1, len, axis: 0)
+    {first_half, second_half}
+  end
+end
+```
+
+Load the data and prepare the train batches and validation dataset.
+
+```elixir
+%{
+  train_images: train_images,
+  train_labels: train_labels,
+  validation_images: validation_images,
+  validation_labels: validation_labels,
+  test_images: test_images,
+  test_labels: test_labels
+} = Chapter19.CIFAR10Cnn.load_data()
+
+train_batches = Stream.zip(Nx.to_batched(train_images, 32), Nx.to_batched(train_labels, 32))
+validation_data = [{validation_images, validation_labels}]
+```
+
+### Build the CNN and train it
+
+```elixir
+epochs = 20
+
+model =
+  Axon.input("data", shape: {nil, 32, 32, 3})
+  |> Axon.conv(16, kernel_size: 3, activation: :relu)
+  |> Axon.batch_norm()
+  |> Axon.dropout(rate: 0.5)
+  |> Axon.conv(32, kernel_size: 3, activation: :relu)
+  |> Axon.batch_norm()
+  |> Axon.dropout(rate: 0.5)
+  |> Axon.flatten()
+  |> Axon.dense(1000, activation: :relu)
+  |> Axon.batch_norm()
+  |> Axon.dropout(rate: 0.5)
+  |> Axon.dense(512, activation: :relu)
+  |> Axon.batch_norm()
+  |> Axon.dropout(rate: 0.5)
+  |> Axon.dense(10, activation: :softmax)
+
+Axon.Display.as_graph(model, Nx.to_template(validation_images))
+Axon.Display.as_table(model, Nx.to_template(validation_images)) |> IO.puts()
+
+model
+|> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.adam())
+|> Axon.Loop.metric(:accuracy)
+|> Axon.Loop.validate(model, validation_data)
+|> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
+```
+
+Training completed in 7800 seconds ca.
+
+Results after 20 epochs:
+
+* accuracy: 0.8463038 - loss: 0.7997918
+* validation accuracy: 0.6678000 - validation loss: 1.2452867
+
+<!-- livebook:{"break_markdown":true} -->
+
+#### Channels `:first` VS `:last`
+
+<!-- livebook:{"break_markdown":true} -->
+
+In the `Chapter19.CIFAR10Cnn` the inputs extracted from the binary are transposed to have the `channels` axis as last:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+defp transform_images({bin, type, shape}) do
+  bin
+  |> Nx.from_binary(type)
+  |> Nx.reshape({elem(shape, 0), 3, 32, 32}, names: [:n, :c, :h, :w])
+  |> Nx.transpose(axes: [:n, :h, :w, :c])
+  |> Nx.divide(255.0)
+end
+```
+
+The `Axon.conv` API already expects the `channels` axis to be last one, therefore there is no need to set the option explicitly.
+
+But it is worth mentioning that keeping the `channels` as first axis (by skipping the transposition) is a possibility.
+
+I tried both the approaches and having the `channels` axis as last led to better accuracy overall:
+
+| Channels position | training accuracy | validation accuracy |
+| ----------------- | ----------------- | ------------------- |
+| :first            | 0.7166188         | 0.6012000           |
+| :last             | 0.8463038         | 0.6678000           |
