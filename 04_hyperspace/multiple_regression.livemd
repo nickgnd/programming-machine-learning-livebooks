@@ -1,15 +1,21 @@
-# 04_hyperspace
+# Chapter 4: Hyperspace!
 
 ```elixir
-Mix.install([
-  {:nx, "~> 0.3"},
-  {:kino, "~> 0.6.2"},
-  {:kino_vega_lite, "~> 0.1.3"},
-  {:vega_lite, "~> 0.1.6"}
-])
+Mix.install(
+  [
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:vega_lite, "~> 0.1.6"},
+    {:kino, "~> 0.8.1"},
+    {:kino_vega_lite, "~> 0.1.7"}
+  ],
+  config: [nx: [default_backend: EXLA.Backend]]
+)
 ```
 
-## Read the data
+## Upgrading the Learner
+
+### Preparing Data
 
 ```elixir
 # Read the data from the file, remove the header and return
@@ -82,31 +88,28 @@ y.shape()
 
 ```elixir
 defmodule C4.MultipleLinearRegression do
+  import Nx.Defn
+
   @doc """
   Return the prediction tensor given the inputs and weight.
   """
-  @spec predict(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
-  def predict(x, weight), do: Nx.dot(x, weight)
+  defn(predict(x, weight), do: Nx.dot(x, weight))
 
   @doc """
   Returns the mean squared error.
   """
-  @spec loss(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: float()
-  def loss(x, y, weight) do
+  defn loss(x, y, weight) do
     predictions = predict(x, weight)
     errors = Nx.subtract(predictions, y)
-    squared_error = Nx.power(errors, 2)
+    squared_error = Nx.pow(errors, 2)
 
-    squared_error
-    |> Nx.mean()
-    |> Nx.to_number()
+    Nx.mean(squared_error)
   end
 
   @doc """
   Returns the derivate of the loss curve.
   """
-  @spec gradient(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
-  def gradient(x, y, weight) do
+  defn gradient(x, y, weight) do
     # in python:
     # 2 * np.matmul(X.T, (predict(X, w) - Y)) / X.shape[0]
 
@@ -125,14 +128,10 @@ defmodule C4.MultipleLinearRegression do
   with the given inputs and labels, by iterating
   over the examples the specified number of times.
   """
-  @spec train(
-          inputs :: Nx.Tensor.t(),
-          labels :: Nx.Tensor.t(),
-          iterations :: integer(),
-          learning_rate :: float()
-        ) :: weight :: Nx.Tensor.t()
   def train(x, y, iterations, lr) do
-    Enum.reduce(0..iterations, init_weight(x), fn _i, weight ->
+    Enum.reduce(0..iterations, init_weight(x), fn i, weight ->
+      current_loss = loss(x, y, weight) |> Nx.to_number()
+      IO.puts("Iteration #{i} => Loss: #{current_loss}")
       Nx.subtract(weight, Nx.multiply(gradient(x, y, weight), lr))
     end)
   end
@@ -140,9 +139,8 @@ defmodule C4.MultipleLinearRegression do
   # Given n elements it returns a tensor
   # with this shape {n, 1}, each element
   # initialized to 0
-  defp init_weight(x) do
-    n_elements = elem(Nx.shape(x), 1)
-    Nx.tile(Nx.tensor([0]), [n_elements, 1])
+  defnp init_weight(x) do
+    Nx.broadcast(Nx.tensor([0]), {elem(Nx.shape(x), 1), 1})
   end
 end
 ```
@@ -150,7 +148,7 @@ end
 ### Train the system
 
 ```elixir
-iterations = Kino.Input.number("iterations", default: 100_000)
+iterations = Kino.Input.number("iterations", default: 10_000)
 ```
 
 ```elixir
@@ -165,7 +163,7 @@ weight = C4.MultipleLinearRegression.train(x, y, iterations, lr)
 ```
 
 ```elixir
-loss = C4.MultipleLinearRegression.loss(x, y, weight)
+loss = C4.MultipleLinearRegression.loss(x, y, weight) |> Nx.to_number()
 ```
 
 ## Bye bye, bias 👋
