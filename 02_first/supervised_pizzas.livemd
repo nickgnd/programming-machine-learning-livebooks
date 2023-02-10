@@ -1,14 +1,16 @@
-# 02_first
+# Chapter 2: Your First Learning Program
 
 ```elixir
 Mix.install([
   {:vega_lite, "~> 0.1.6"},
-  {:kino, "~> 0.6.2"},
-  {:kino_vega_lite, "~> 0.1.3"}
+  {:kino, "~> 0.8.1"},
+  {:kino_vega_lite, "~> 0.1.7"}
 ])
 ```
 
-## Read the data
+## Pizza and Correlation
+
+### Read the data
 
 ```elixir
 # Read the data from the file, remove the header and return
@@ -25,29 +27,19 @@ data =
 Kino.DataTable.new(data)
 ```
 
-```elixir
-# Transform the data to unpack the 2 columns `reservations` and
-# `pizzas` into separate arrays called x and y
-%{x: x, y: y} =
-  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
-    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
-  end)
-```
-
 ### Plot the data
 
-```elixir
-alias VegaLite, as: Vl
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
 
-# Initialize the specification, optionally with some top-level properties
-Vl.new(width: 600, height: 400)
-|> Vl.data_from_values(reservations: x, pizzas: y)
-|> Vl.mark(:point, tooltip: true)
-|> Vl.encode_field(:x, "reservations", type: :quantitative)
-|> Vl.encode_field(:y, "pizzas", type: :quantitative)
+```elixir
+VegaLite.new(width: 600, height: 400)
+|> VegaLite.data_from_values(data, only: ["reservations", "pizzas"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "reservations", type: :quantitative)
+|> VegaLite.encode_field(:y, "pizzas", type: :quantitative)
 ```
 
-## Linear regression
+## Tracing a Line
 
 ```elixir
 defmodule C2.LinearRegression do
@@ -76,11 +68,10 @@ defmodule C2.LinearRegression do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, 0, fn _i, w ->
+    Enum.reduce(0..iterations, 0, fn i, w ->
       current_loss = loss(x, y, w)
 
-      # Commented out to don't freeze the browser
-      # IO.puts("Iteration #{i} => Loss: #{current_loss}")
+      IO.puts("Iteration #{i} => Loss: #{current_loss}")
 
       cond do
         loss(x, y, w + lr) < current_loss -> w + lr
@@ -101,6 +92,15 @@ end
 ```
 
 ### Train the system
+
+```elixir
+# Transform the data to unpack the 2 columns `reservations` and
+# `pizzas` into separate arrays called x and y
+%{x: x, y: y} =
+  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
+    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
+  end)
+```
 
 ```elixir
 iterations = Kino.Input.number("iterations", default: 10_000)
@@ -124,32 +124,33 @@ C2.LinearRegression.predict(20, w)
 ```
 
 ```elixir
-alias VegaLite, as: Vl
+# Compute the predictions
 
 predictions =
-  0..Enum.max(x)
-  |> Enum.map(&C2.LinearRegression.predict(&1, w))
+  Enum.map(0..Enum.max(x), fn i ->
+    %{x: i, prediction: C2.LinearRegression.predict(i, w)}
+  end)
+```
 
-Vl.new(width: 600, height: 400)
-|> Vl.data_from_values(
-  reservations: x,
-  pizzas: y,
-  predictions_x: Enum.to_list(0..Enum.max(x)),
-  predictions: predictions
-)
-|> Vl.layers([
-  Vl.new()
-  |> Vl.mark(:point, tooltip: true)
-  |> Vl.encode_field(:x, "reservations", type: :quantitative)
-  |> Vl.encode_field(:y, "pizzas", type: :quantitative),
-  Vl.new()
-  |> Vl.mark(:line)
-  |> Vl.encode_field(:x, "predictions_x", type: :quantitative)
-  |> Vl.encode_field(:y, "predictions", type: :quantitative)
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"predictions","x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 600, height: 400)
+|> VegaLite.layers([
+  VegaLite.new()
+  |> VegaLite.data_from_values(data, only: ["reservations", "pizzas"])
+  |> VegaLite.mark(:point)
+  |> VegaLite.encode_field(:x, "reservations", type: :quantitative)
+  |> VegaLite.encode_field(:y, "pizzas", type: :quantitative),
+  VegaLite.new()
+  |> VegaLite.data_from_values(predictions, only: ["x", "prediction"])
+  |> VegaLite.mark(:line)
+  |> VegaLite.encode_field(:x, "x", type: :quantitative)
+  |> VegaLite.encode_field(:y, "prediction", type: :quantitative)
 ])
 ```
 
-## Linear regression with bias
+## Adding a Bias
 
 ```elixir
 defmodule C2.LinearRegressionWithBias do
@@ -178,8 +179,10 @@ defmodule C2.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn _i, %{weight: w, bias: b} = acc ->
+    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
       current_loss = loss(x, y, w, b)
+
+      IO.puts("Iteration #{i} => Loss: #{current_loss}")
 
       cond do
         loss(x, y, w + lr, b) < current_loss -> %{acc | weight: w + lr}
@@ -232,27 +235,28 @@ C2.LinearRegressionWithBias.predict(n, w2, bias)
 ```
 
 ```elixir
-alias VegaLite, as: Vl
+# Compute the predictions 
 
 predictions =
-  0..Enum.max(x)
-  |> Enum.map(&C2.LinearRegressionWithBias.predict(&1, w2, bias))
+  Enum.map(0..Enum.max(x), fn i ->
+    %{x: i, prediction: C2.LinearRegressionWithBias.predict(i, w2, bias)}
+  end)
+```
 
-Vl.new(width: 600, height: 400)
-|> Vl.data_from_values(
-  reservations: x,
-  pizzas: y,
-  predictions_x: Enum.to_list(0..Enum.max(x)),
-  predictions: predictions
-)
-|> Vl.layers([
-  Vl.new()
-  |> Vl.mark(:point, tooltip: true)
-  |> Vl.encode_field(:x, "reservations", type: :quantitative)
-  |> Vl.encode_field(:y, "pizzas", type: :quantitative),
-  Vl.new()
-  |> Vl.mark(:line)
-  |> Vl.encode_field(:x, "predictions_x", type: :quantitative)
-  |> Vl.encode_field(:y, "predictions", type: :quantitative)
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"predictions","x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 600, height: 400)
+|> VegaLite.layers([
+  VegaLite.new()
+  |> VegaLite.data_from_values(data, only: ["reservations", "pizzas"])
+  |> VegaLite.mark(:point)
+  |> VegaLite.encode_field(:x, "reservations", type: :quantitative)
+  |> VegaLite.encode_field(:y, "pizzas", type: :quantitative),
+  VegaLite.new()
+  |> VegaLite.data_from_values(predictions, only: ["x", "prediction"])
+  |> VegaLite.mark(:line)
+  |> VegaLite.encode_field(:x, "x", type: :quantitative)
+  |> VegaLite.encode_field(:y, "prediction", type: :quantitative)
 ])
 ```
