@@ -1,10 +1,10 @@
-# 03_gradient
+# Chapter 3: Walking the Gradient
 
 ```elixir
 Mix.install([
   {:vega_lite, "~> 0.1.6"},
-  {:kino, "~> 0.6.2"},
-  {:kino_vega_lite, "~> 0.1.3"}
+  {:kino, "~> 0.8.1"},
+  {:kino_vega_lite, "~> 0.1.7"}
 ])
 ```
 
@@ -13,7 +13,6 @@ Mix.install([
 ```elixir
 # Read the data from the file, remove the header and return
 # `[%{reservations: integer(), pizzas: integer()}]`
-# File.read!("03_gradient/pizza.txt")
 data =
   File.read!("./03_gradient/pizza.txt")
   |> String.split("\n", trim: true)
@@ -22,15 +21,6 @@ data =
   |> Enum.map(fn [r, p] -> %{reservations: String.to_integer(r), pizzas: String.to_integer(p)} end)
 
 Kino.DataTable.new(data)
-```
-
-```elixir
-# Transform the data to unpack the 2 columns `reservations` and
-# `pizzas` into separate arrays called x and y
-%{x: x, y: y} =
-  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
-    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
-  end)
 ```
 
 ## Linear regression with bias
@@ -64,8 +54,10 @@ defmodule C2.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn _i, %{weight: w, bias: b} = acc ->
+    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
       current_loss = loss(x, y, w, b)
+
+      IO.puts("Iteration #{i} => Loss: #{current_loss}")
 
       cond do
         loss(x, y, w + lr, b) < current_loss -> %{acc | weight: w + lr}
@@ -88,6 +80,15 @@ end
 ```
 
 ### Plot the loss curve
+
+```elixir
+# Transform the data to unpack the 2 columns `reservations` and
+# `pizzas` into separate arrays called x and y
+%{x: x, y: y} =
+  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
+    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
+  end)
+```
 
 ```elixir
 alias VegaLite, as: Vl
@@ -120,7 +121,7 @@ Vl.new(width: 600, height: 400)
 ])
 ```
 
-## Gradient descent without bias
+## Gradient Descent
 
 ```elixir
 defmodule C3.LinearRegressionWithoutBias do
@@ -153,7 +154,6 @@ defmodule C3.LinearRegressionWithoutBias do
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
     Enum.reduce(0..iterations, 0, fn i, weight ->
       IO.puts("Iteration #{i} => Loss: #{loss(x, y, weight, 0)}")
-      IO.puts("Iteration #{i} => Gradient: #{gradient(x, y, weight)}")
       weight - gradient(x, y, weight) * lr
     end)
   end
@@ -185,7 +185,7 @@ lr = Kino.Input.read(lr)
 weight = C3.LinearRegressionWithoutBias.train(x, y, iterations = 100, lr = 0.001)
 ```
 
-## Gradient descent with bias
+## Putting Gradient Descent to the Test
 
 ```elixir
 defmodule C3.LinearRegressionWithBias do
@@ -220,7 +220,9 @@ defmodule C3.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn _i, %{weight: weight, bias: bias} ->
+    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: weight, bias: bias} ->
+      IO.puts("Iteration #{i} => Loss: #{loss(x, y, weight, bias)}")
+
       {w_gradient, b_gradient} = gradient(x, y, weight, bias)
       %{weight: weight - w_gradient * lr, bias: bias - b_gradient * lr}
     end)
