@@ -1,14 +1,11 @@
-# Forward Propagation - MNIST
+# Chapter 10: Building the Network
 
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.3"},
-    {:jason, "~> 1.2"},
-    {:nx, "~> 0.3"},
-    {:kino, "~> 0.6.2"},
-    {:kino_vega_lite, "~> 0.1.3"},
-    {:vega_lite, "~> 0.1.6"}
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:jason, "~> 1.4"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
@@ -31,18 +28,11 @@ defmodule C10.MNIST do
   @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
   @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
 
-  @type t :: %__MODULE__{
-          x_train: Nx.Tensor.t(),
-          x_test: Nx.Tensor.t(),
-          y_train: Nx.Tensor.t(),
-          y_test: Nx.Tensor.t()
-        }
   defstruct [:x_train, :x_test, :y_train, :y_test]
 
   @doc """
   Load the MNIST database and return the train and test images.
   """
-  @spec load() :: t()
   def load() do
     %__MODULE__{
       # 60000 images, each 784 elements (28 * 28 pixels)
@@ -59,7 +49,6 @@ defmodule C10.MNIST do
   @doc """
   One-hot encode the given tensor (classes: from 0 to 9).
   """
-  @spec one_hot_encode(y :: Nx.Tensor.t()) :: Nx.Tensor.t()
   def one_hot_encode(y) do
     Nx.equal(y, Nx.tensor(Enum.to_list(0..9)))
   end
@@ -68,7 +57,6 @@ defmodule C10.MNIST do
   Load the MNIST labels from the given file
   and return a matrix.
   """
-  @spec load_labels(Path.t()) :: Nx.Tensor.t()
   def load_labels(filename) do
     # Open and unzip the file of labels
     with {:ok, binary} <- File.read(filename) do
@@ -86,7 +74,6 @@ defmodule C10.MNIST do
   Load the MNIST images from the given file
   and return a matrix.
   """
-  @spec load_images(Path.t()) :: Nx.Tensor.t()
   def load_images(filename) do
     # Open and unzip the file of images
     with {:ok, binary} <- File.read(filename) do
@@ -103,14 +90,14 @@ defmodule C10.MNIST do
 end
 ```
 
-### Load the data.
+### Load the data
 
 ```elixir
 # Use the public API to get train and test images
 %{x_train: x_train, x_test: x_test, y_train: y_train, y_test: y_test} = data = C10.MNIST.load()
 ```
 
-## Softmax
+## Writing the Softmax Function
 
 Softmax is used as activation function as the `sigmoid` we used in the previous chapter. It is used in the last network's layer.
 
@@ -135,9 +122,26 @@ output = Nx.tensor([[0.3, 0.8, 0.2], [0.1, 0.9, 0.1]])
 softmax.(output)
 ```
 
-## Define the classifier
+### Numerical Stability
 
-_Update the classifier implemented in chapter 7._
+Our implementations of `softmax/1` and `sigmoid/1` have a problem: they're numerically unstable, meaning that they amplify small changes in the inputs
+
+```elixir
+softmax.(Nx.tensor([[1, 20]])) |> IO.inspect(label: "softmax([[1, 20]])")
+
+softmax.(Nx.tensor([[1, 1000]])) |> IO.inspect(label: "softmax([[1, 1000]])")
+
+:ok
+```
+
+## Forward propagation and Cross entropy
+
+Update the classifier implemented in chapter 7 with:
+
+* Softmax activation function `softmax/1`
+* Forward propagation `forward/3`
+* Classification function `classify/3`
+* Cross-entropy loss `loss/2`
 
 ```elixir
 defmodule C10.Classifier do
@@ -157,7 +161,6 @@ defmodule C10.Classifier do
 
   More here https://en.wikipedia.org/wiki/Sigmoid_function
   """
-  @spec sigmoid(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn sigmoid(z) do
     Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
   end
@@ -171,7 +174,6 @@ defmodule C10.Classifier do
 
   More here https://en.wikipedia.org/wiki/Softmax_function
   """
-  @spec softmax(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn softmax(logits) do
     exponentials = Nx.exp(logits)
 
@@ -185,7 +187,6 @@ defmodule C10.Classifier do
   Prepend a the bias, an extra column of 1s, to
   the given tensor.
   """
-  @spec prepend_bias(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn prepend_bias(x) do
     bias = Nx.broadcast(1, {elem(Nx.shape(x), 0), 1})
 
@@ -200,7 +201,6 @@ defmodule C10.Classifier do
   the weighted sum: one row per example, and one column.
   Each element in the matrix is now constrained between 0 and 1.  
   """
-  @spec forward(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn forward(x, weight1, weight2) do
     h = sigmoid(Nx.dot(prepend_bias(x), weight1))
     softmax(Nx.dot(prepend_bias(h), weight2))
@@ -209,7 +209,6 @@ defmodule C10.Classifier do
   @doc """
   Return the prediction rounded to forecast a value between 0 and 9.
   """
-  @spec classify(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn classify(x, weight1, weight2) do
     y_hat = forward(x, weight1, weight2)
 
@@ -228,7 +227,6 @@ defmodule C10.Classifier do
   It measures the distance between the classifier's prediction
   and the labels.
   """
-  @spec loss(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn loss(y, y_hat) do
     # In python: -np.sum(Y * np.log(y_hat)) / Y.shape[0]
     -Nx.sum(y * Nx.log(y_hat)) / elem(Nx.shape(y), 0)
@@ -237,15 +235,6 @@ defmodule C10.Classifier do
   @doc """
   Utility to report (to stdout) the loss per iteration.
   """
-  @spec report(
-          integer(),
-          Nx.Tensor.t(),
-          Nx.Tensor.t(),
-          Nx.Tensor.t(),
-          Nx.Tensor.t(),
-          Nx.Tensor.t(),
-          Nx.Tensor.t()
-        ) :: String.t()
   def report(iteration, x_train, y_train, x_test, y_test, weight1, weight2) do
     y_hat = forward(x_train, weight1, weight2)
     training_loss = loss(y_train, y_hat) |> Nx.to_number()
@@ -256,6 +245,8 @@ defmodule C10.Classifier do
   end
 end
 ```
+
+## Hands on: Time Travel Testing
 
 ### Test the system with some pre-computed weights
 
