@@ -1,19 +1,16 @@
-# Neural Network - MNIST
+# Chapter 11: Training the Network
 
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.3"},
-    {:nx, "~> 0.3"},
-    {:kino, "~> 0.6.2"},
-    {:kino_vega_lite, "~> 0.1.3"},
-    {:vega_lite, "~> 0.1.6"}
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
 ```
 
-## Load MNIST images
+## Load MNIST dataset
 
 _The module to load MNIST data is the based on the developed one in the chapter 10, but the returned `y_train` is already hot-encoded._
 
@@ -30,12 +27,6 @@ defmodule C11.MNIST do
   @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
   @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
 
-  @type t :: %__MODULE__{
-          x_train: Nx.Tensor.t(),
-          x_test: Nx.Tensor.t(),
-          y_train: Nx.Tensor.t(),
-          y_test: Nx.Tensor.t()
-        }
   defstruct [:x_train, :x_test, :y_train, :y_test]
 
   @doc """
@@ -43,7 +34,6 @@ defmodule C11.MNIST do
 
   `y_train` already hot-encoded.
   """
-  @spec load() :: t()
   def load() do
     %__MODULE__{
       # 60000 images, each 784 elements (28 * 28 pixels)
@@ -60,7 +50,6 @@ defmodule C11.MNIST do
   @doc """
   One-hot encode the given tensor (classes: from 0 to 9).
   """
-  @spec one_hot_encode(y :: Nx.Tensor.t()) :: Nx.Tensor.t()
   def one_hot_encode(y) do
     Nx.equal(y, Nx.tensor(Enum.to_list(0..9)))
   end
@@ -69,7 +58,6 @@ defmodule C11.MNIST do
   Load the MNIST labels from the given file
   and return a matrix.
   """
-  @spec load_labels(Path.t()) :: Nx.Tensor.t()
   def load_labels(filename) do
     # Open and unzip the file of labels
     with {:ok, binary} <- File.read(filename) do
@@ -87,7 +75,6 @@ defmodule C11.MNIST do
   Load the MNIST images from the given file
   and return a matrix.
   """
-  @spec load_images(Path.t()) :: Nx.Tensor.t()
   def load_images(filename) do
     # Open and unzip the file of images
     with {:ok, binary} <- File.read(filename) do
@@ -131,9 +118,9 @@ $$
 
 $$
 
-## Define the classifier
+## The Finished Network
 
-_Update the classifier implemented in chapter 7._
+_The Neural Network is based on the classifier implemented in chapter 7, but with the backpropagation step when training the model._
 
 ```elixir
 defmodule C11.Classifier do
@@ -153,7 +140,6 @@ defmodule C11.Classifier do
 
   More here https://en.wikipedia.org/wiki/Sigmoid_function
   """
-  @spec sigmoid(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn sigmoid(z) do
     Nx.divide(1, Nx.add(1, Nx.exp(Nx.negate(z))))
   end
@@ -172,7 +158,6 @@ defmodule C11.Classifier do
   - one column per class (0..9) 
   and it must return a matrix of the same shape.
   """
-  @spec softmax(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn softmax(logits) do
     exponentials = Nx.exp(logits)
 
@@ -186,7 +171,6 @@ defmodule C11.Classifier do
   Helper function that calculates the sigmoid's gradient
   from the sigmoid's output.
   """
-  @spec sigmoid_gradient(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn sigmoid_gradient(sigmoid) do
     Nx.multiply(sigmoid, 1 - sigmoid)
   end
@@ -197,7 +181,6 @@ defmodule C11.Classifier do
   It measures the distance between the classifier's prediction
   and the labels.
   """
-  @spec loss(Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn loss(y, y_hat) do
     -Nx.sum(y * Nx.log(y_hat)) / elem(Nx.shape(y), 0)
   end
@@ -206,7 +189,6 @@ defmodule C11.Classifier do
   Prepend a the bias, an extra column of 1s, to
   the given tensor.
   """
-  @spec prepend_bias(Nx.Tensor.t()) :: Nx.Tensor.t()
   defn prepend_bias(x) do
     bias = Nx.broadcast(1, {elem(Nx.shape(x), 0), 1})
 
@@ -233,8 +215,6 @@ defmodule C11.Classifier do
   - `weight2` shape: `{201, 10}`
   - `y_hat` shape: `{60000, 10}`
   """
-  @spec forward(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) ::
-          {y_hat :: Nx.Tensor.t(), h :: Nx.Tensor.t()}
   defn forward(x, weight1, weight2) do
     h = sigmoid(Nx.dot(prepend_bias(x), weight1))
     y_hat = softmax(Nx.dot(prepend_bias(h), weight2))
@@ -252,8 +232,6 @@ defmodule C11.Classifier do
   Thanks to the chain rule, we can calculate a complicated gradient
   as a multiplication of many simple gradients.
   """
-  @spec back(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) ::
-          {w1_gradient :: Nx.Tensor.t(), w2_gradient :: Nx.Tensor.t()}
   defn back(x, y, y_hat, weight2, h) do
     # - The swapping and transposition are needed to get the correct dimension
     # - The bias columnm is prepended to `h` as it is done in `forward/3`
@@ -272,7 +250,7 @@ defmodule C11.Classifier do
     # - The swapping and transposition are needed to get a result with
     # the same dimensions as `w2`.
     # - In this case, we don't need to add a bias column to `h` because
-    # the bias is added after its calculation (whne computing `y_hat`)
+    # the bias is added after its calculation (when computing `y_hat`)
     # Instead, the bias is prepended to `x` as it is done in the `forward/3`
     # function
     # - And since we ignored the the bias prepended to `h`, we need to
@@ -295,7 +273,6 @@ defmodule C11.Classifier do
   @doc """
   Return a single-column matrix of prediction, where each value is between 0 and 9.
   """
-  @spec classify(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn classify(x, weight1, weight2) do
     {y_hat, _h} = forward(x, weight1, weight2)
 
@@ -320,18 +297,26 @@ defmodule C11.Classifier do
   stable (overflow). Plus, large values make the training slower with the
   possibility to halt the learning completely ("dead neurons").
 
-  The initialization of the weights is done via `Nx.random_normal/4`
-  https://hexdocs.pm/nx/Nx.html#random_normal/4
+  The initialization of the weights is done via `Nx.Random.normal/4`
+  https://hexdocs.pm/nx/Nx.Random.html#normal/4
+
+  And for doing that we need to pass a pseudo-random number generator (PRNG) key
+  to the function as argument, a new one for each different Nx’s random number generation
+  calls.
+  https://hexdocs.pm/nx/Nx.Random.html#module-design-and-context
   """
-  @spec initialize_weights(opts :: [w1_shape: tuple(), w2_shape: tuple()]) ::
-          {weight1 :: Nx.Tensor.t(), weight2 :: Nx.Tensor.t()}
   defn initialize_weights(opts \\ []) do
     opts = keyword!(opts, [:w1_shape, :w2_shape])
-
     mean = 0.0
     std_deviation = 0.01
-    weight1 = Nx.random_normal(opts[:w1_shape], mean, std_deviation)
-    weight2 = Nx.random_normal(opts[:w2_shape], mean, std_deviation)
+
+    prng_key = Nx.Random.key(1234)
+
+    {weight1, new_prng_key} =
+      Nx.Random.normal(prng_key, mean, std_deviation, shape: opts[:w1_shape])
+
+    {weight2, _new_prng_key} =
+      Nx.Random.normal(new_prng_key, mean, std_deviation, shape: opts[:w2_shape])
 
     {weight1, weight2}
   end
@@ -339,15 +324,6 @@ defmodule C11.Classifier do
   @doc """
   Utility to report (to stdout) the loss per iteration.
   """
-  @spec report(
-          iteration_n :: integer(),
-          x_train :: Nx.Tensor.t(),
-          y_train :: Nx.Tensor.t(),
-          x_test :: Nx.Tensor.t(),
-          y_test :: Nx.Tensor.t(),
-          w1 :: Nx.Tensor.t(),
-          w2 :: Nx.Tensor.t()
-        ) :: :ok
   def report(iteration, x_train, y_train, x_test, y_test, weight1, weight2) do
     {y_hat, _h} = forward(x_train, weight1, weight2)
     training_loss = loss(y_train, y_hat) |> Nx.to_number()
@@ -364,15 +340,6 @@ defmodule C11.Classifier do
 
   For each iteration, it prints the loss and the accuracy.
   """
-  @spec train(
-          train_inputs :: Nx.Tensor.t(),
-          train_labels :: Nx.Tensor.t(),
-          test_inputs :: Nx.Tensor.t(),
-          test_labels :: Nx.Tensor.t(),
-          n_hidden_nodes :: integer(),
-          iterations :: integer(),
-          learning_rate :: float()
-        ) :: {weight1 :: Nx.Tensor.t(), weight2 :: Nx.Tensor.t()}
   def train(x_train, y_train, x_test, y_test, n_hidden_nodes, iterations, lr) do
     n_input_variables = elem(Nx.shape(x_train), 1)
     n_classes = elem(Nx.shape(y_train), 1)
@@ -401,9 +368,14 @@ defmodule C11.Classifier do
 end
 ```
 
+### Training the network
+
 ```elixir
 hidden_nodes = 200
-iterations = 10000
+# In the books the NN is trained for 10_000 iterations
+# but already 3500 lead to the same result in terms of
+# loss and accuracy
+iterations = 3500
 learning_rate = 0.01
 
 {w1, w2} =
@@ -417,3 +389,21 @@ learning_rate = 0.01
     learning_rate
   )
 ```
+
+```
+Iteration 0, Loss: 2.2787163257598877, Accuracy: 13.799999237060547%
+Iteration 1, Loss: 2.2671103477478027, Accuracy: 18.26999855041504%
+Iteration 2, Loss: 2.2557082176208496, Accuracy: 24.209999084472656%
+Iteration 3, Loss: 2.2444677352905273, Accuracy: 29.920000076293945%
+Iteration 4, Loss: 2.2333567142486572, Accuracy: 34.720001220703125%
+...
+...
+Iteration 3497, Loss: 0.13987472653388977, Accuracy: 94.20999908447266%
+Iteration 3498, Loss: 0.13985344767570496, Accuracy: 94.20999908447266%
+Iteration 3499, Loss: 0.13983216881752014, Accuracy: 94.20999908447266%
+```
+
+After 35 minutes ca. and 3500 iterations:
+
+* Loss: 0.13983216881752014
+* Accuracy: 94.20999908447266%
