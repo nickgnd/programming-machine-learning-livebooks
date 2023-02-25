@@ -1,19 +1,19 @@
-# Linearly separable data
+# Chapter 12: How Classifiers Works (1 of 2)
 
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.3"},
-    {:nx, "~> 0.3"},
-    {:kino, "~> 0.6.2"},
-    {:kino_vega_lite, "~> 0.1.3"},
-    {:vega_lite, "~> 0.1.6"}
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:vega_lite, "~> 0.1.6"},
+    {:kino, "~> 0.8.1"},
+    {:kino_vega_lite, "~> 0.1.7"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
 ```
 
-## Read the data
+## Load the Data
 
 ```elixir
 filepath = "./12_classifiers/linearly_separable.txt"
@@ -37,25 +37,18 @@ inputs =
 Kino.DataTable.new(inputs)
 ```
 
-```elixir
-alias VegaLite, as: Vl
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":"label","color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":"nominal","data_variable":"inputs","x_field":"input_a","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"input_b","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
 
-Vl.new(width: 600, height: 400)
-|> Vl.layers([
-  Vl.new()
-  |> Vl.data_from_values(inputs)
-  |> Vl.mark(:circle, tooltip: true)
-  |> Vl.encode_field(:x, "input_a", type: :quantitative)
-  |> Vl.encode_field(:y, "input_b", type: :quantitative)
-  |> Vl.encode(:color, field: "label")
-])
+```elixir
+VegaLite.new(width: 600, height: 400)
+|> VegaLite.data_from_values(inputs, only: ["input_a", "input_b", "label"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "input_a", type: :quantitative)
+|> VegaLite.encode_field(:y, "input_b", type: :quantitative)
+|> VegaLite.encode_field(:color, "label", type: :nominal)
 ```
 
-## Binary classification of the dataset
-
-### Perceptron
-
-<!-- livebook:{"break_markdown":true} -->
+## Perceptron
 
 Perceptron based on `C7.Classifier` implementation.
 
@@ -142,7 +135,7 @@ defmodule C12.Perceptron do
 end
 ```
 
-### Classification
+## Train Perceptron
 
 ```elixir
 # Prepend the bias function
@@ -188,7 +181,7 @@ lr = 0.1
 weight = C12.Perceptron.train(x_train, y_train, x_test, y_test, iterations, lr)
 ```
 
-## Plot data
+## Plot Decision Boundary
 
 The idea:
 
@@ -268,7 +261,7 @@ data_with_labels =
 ```
 
 ```elixir
-# Plot the grid with the labels (by colouring the points in the grid)
+alias VegaLite, as: Vl
 
 Vl.new(width: 600, height: 400)
 |> Vl.layers([
@@ -282,10 +275,11 @@ Vl.new(width: 600, height: 400)
   # Inputs
   Vl.new()
   |> Vl.data_from_values(inputs)
-  |> Vl.mark(:circle, tooltip: true)
+  |> Vl.mark(:point, filled: true, tooltip: true)
   |> Vl.encode_field(:x, "input_a", type: :quantitative)
   |> Vl.encode_field(:y, "input_b", type: :quantitative)
-  |> Vl.encode(:color, field: "label", scale: %{"range" => ["blue", "green"]}),
+  |> Vl.encode(:color, field: "label", scale: %{"range" => ["blue", "green"]})
+  |> Vl.encode(:shape, field: "label", scale: %{"range" => ["square", "triangle-up"]}),
   # Threshold line
   Vl.new()
   |> Vl.data_from_values(data_with_labels)
