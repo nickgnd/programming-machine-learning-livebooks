@@ -1,13 +1,13 @@
-# 15 Let's do development
+# Chapter 15: Let's do development
 
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.3"},
-    {:nx, "~> 0.3"},
-    {:kino, "~> 0.6.2"},
-    {:kino_vega_lite, "~> 0.1.3"},
-    {:vega_lite, "~> 0.1.6"}
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:vega_lite, "~> 0.1.6"},
+    {:kino, "~> 0.8.1"},
+    {:kino_vega_lite, "~> 0.1.7"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
@@ -69,14 +69,13 @@ defmodule C15.MNISTStandardized do
     x_test_raw = load_images(@test_images_filename)
 
     {x_train, x_test_all} = maybe_standardize(x_train_raw, x_test_raw, opts)
-    {x_validation, x_test} = split(x_test_all)
 
     # 10000 labels, each a single digit from 0 to 9
     y_test_all = load_labels(@test_labels_filename)
 
-    # 5000 for validation - 5000 for testing
-    # each 784 elements, with the same structure as `x_train`
-    {y_validation, y_test} = split(y_test_all)
+    # Split the test data (10000 images/labels) in `validation` and `test` datasets
+    [x_validation, x_test] = Nx.to_batched(x_test_all, 5000) |> Enum.to_list()
+    [y_validation, y_test] = Nx.to_batched(y_test_all, 5000) |> Enum.to_list()
 
     %__MODULE__{
       x_train: x_train,
@@ -107,14 +106,6 @@ defmodule C15.MNISTStandardized do
     training_set_standardized = (training_set - average) / standard_deviation
     test_set_standardized = (test_set - average) / standard_deviation
     {training_set_standardized, test_set_standardized}
-  end
-
-  defp split(tensor) do
-    {x, _} = Nx.shape(tensor)
-    len = trunc(x / 2)
-    first_half = Nx.slice_along_axis(tensor, 0, len, axis: 0)
-    second_half = Nx.slice_along_axis(tensor, len + 1, len, axis: 0)
-    {first_half, second_half}
   end
 
   @doc """
@@ -232,18 +223,23 @@ defmodule C15.NeuralNetwork do
 
   defn initialize_weights(opts \\ []) do
     opts = keyword!(opts, [:w1_shape, :w2_shape])
-
     mean = 0.0
     std_deviation = 0.01
-    weight1 = Nx.random_normal(opts[:w1_shape], mean, std_deviation)
-    weight2 = Nx.random_normal(opts[:w2_shape], mean, std_deviation)
+
+    prng_key = Nx.Random.key(1234)
+
+    {weight1, new_prng_key} =
+      Nx.Random.normal(prng_key, mean, std_deviation, shape: opts[:w1_shape])
+
+    {weight2, _new_prng_key} =
+      Nx.Random.normal(new_prng_key, mean, std_deviation, shape: opts[:w2_shape])
 
     {weight1, weight2}
   end
 
   def prepare_batches(x_train, y_train, batch_size) do
-    x_batches = Nx.to_batched_list(x_train, batch_size)
-    y_batches = Nx.to_batched_list(y_train, batch_size)
+    x_batches = Nx.to_batched(x_train, batch_size) |> Enum.to_list()
+    y_batches = Nx.to_batched(y_train, batch_size) |> Enum.to_list()
 
     {x_batches, y_batches}
   end
