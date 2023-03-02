@@ -3,10 +3,10 @@
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.4"},
-    {:nx, "~> 0.4"},
-    {:axon, "~> 0.4"},
-    {:kino, "~> 0.8.0"},
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:axon, "~> 0.5"},
+    {:kino, "~> 0.8.1"},
     {:kino_vega_lite, "~> 0.1.7"},
     {:vega_lite, "~> 0.1.6"},
     {:table_rex, "~> 3.1.1"}
@@ -203,11 +203,9 @@ train_batches = Stream.zip(train_inputs, train_labels)
 
 validation_data = [{x_validation, y_validation}]
 
-# In the book, the epoch are 30_000, but
-# the training is taking way to long :/
-# https://github.com/elixir-nx/axon/issues/430
-epochs = 500
+epochs = 30_000
 
+# (~360 seconds with CPU)
 params =
   model
   |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001))
@@ -227,7 +225,7 @@ defmodule C16.Plotter do
 
   NOTE: since the training has been done on the normalized inputs,
   instead of using the original inputs from the Echidna dataset,
-  the inputs and labels are extracted from the tensors in oreder
+  the inputs and labels are extracted from the tensors in order
   to be in scale with the predictions.
   """
 
@@ -333,41 +331,7 @@ end
 ```
 
 ```elixir
-# NOTE: the boundaries won't be as precise as in the same plot in the book because
-# the model has been trained for fewer epochs.
-
 C16.Plotter.plot(%{x: x_all, y: y_all}, model, params)
-```
-
-### After 30_000 epochs
-
-Training the model for `30_000` epochs is taking way to long to await in this livebook.
-I therefore left the model training for the whole day and stored the params in a file.
-
-```bash
-Epoch: 29995, Batch: 10, accuracy: 0.9527273 loss: 0.2229274
-Batch: 0, accuracy: 0.8947368 loss: 0.2053576
-
-Batch: 0, accuracy: 0.8947368 loss: 0.2053561
-
-Batch: 0, accuracy: 0.8947368 loss: 0.2053546
-
-Batch: 0, accuracy: 0.8947368 loss: 0.2053531
-
-Batch: 0, accuracy: 0.8947368 loss: 0.2053516
-"TRAINING CONCLUDED IN 805 minutes."
-```
-
-👉 Validation: accuracy: 0.8947368 loss: 0.2053516
-
-Let's load it and see the boundaries.
-
-```elixir
-params_after_30000_epochs =
-  File.read!("./16_deeper/model1_params.term")
-  |> Nx.deserialize()
-
-C16.Plotter.plot(%{x: x_all, y: y_all}, model, params_after_30000_epochs)
 ```
 
 ## Making Deep
@@ -387,9 +351,15 @@ Axon.Display.as_graph(new_model, template)
 ```elixir
 # epochs are defined in the previous model's training
 
+# Set `eps` option in the RMSprop to prevent division by zero (NaN)
+# By deafult in Axon is 1.0e-8, I tried with 1.0e-7 (Keras default) and
+# it was still returning NaN.
+epsilon = 1.0e-4
+
+# (~450 seconds with CPU)
 new_params =
   new_model
-  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001))
+  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001, eps: 1.0e-4))
   |> Axon.Loop.metric(:accuracy)
   |> Axon.Loop.validate(new_model, validation_data)
   |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
@@ -397,34 +367,4 @@ new_params =
 
 ```elixir
 C16.Plotter.plot(%{x: x_all, y: y_all}, new_model, new_params)
-```
-
-### After 30_000 epochs
-
-> ⚠️ Something went wrong during the training: the final loss is "NaN" and the accuracy is lower compared to the book.
-
-Same discourse as before, I left the model training for the whole day and stored the final params in a file.
-
-<!-- livebook:{"break_markdown":true} -->
-
-```bash
-Epoch: 29995, Batch: 10, accuracy: 0.4836363 loss: NaN
-Batch: 0, accuracy: 0.4701754 loss: NaN
-
-Batch: 0, accuracy: 0.4701754 loss: NaN
-
-Batch: 0, accuracy: 0.4701754 loss: NaN
-
-Batch: 0, accuracy: 0.4701754 loss: NaN
-
-Batch: 0, accuracy: 0.4701754 loss: NaN
-"TRAINING CONCLUDED IN 866 minutes."
-```
-
-```elixir
-params_2_after_30000_epochs =
-  File.read!("./16_deeper/model2_params.term")
-  |> Nx.deserialize()
-
-C16.Plotter.plot(%{x: x_all, y: y_all}, new_model, params_2_after_30000_epochs)
 ```
