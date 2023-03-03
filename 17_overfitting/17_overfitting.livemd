@@ -3,10 +3,10 @@
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.4"},
-    {:nx, "~> 0.4"},
-    {:axon, "~> 0.4"},
-    {:kino, "~> 0.8.0"},
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:axon, "~> 0.5"},
+    {:kino, "~> 0.8.1"},
     {:kino_vega_lite, "~> 0.1.7"},
     {:vega_lite, "~> 0.1.6"}
   ],
@@ -14,7 +14,11 @@ Mix.install(
 )
 ```
 
-## The Echidna Dataset
+## Regularizing the Model
+
+### Reviewing the Deep Network
+
+#### Load Echidna Dataset
 
 ```elixir
 defmodule C17.EchidnaDataset do
@@ -97,8 +101,6 @@ defmodule C17.EchidnaDataset do
 end
 ```
 
-### Load the data
-
 Load the data and split the input/label tensors in train, validate and test sets to use in the different stages.
 
 ```elixir
@@ -109,28 +111,12 @@ size = (elem(Nx.shape(x_all), 0) / 3) |> ceil()
 [x_train, x_validation, x_test] = Nx.to_batched(x_all, size) |> Enum.to_list()
 [y_train, y_validation, y_test] = Nx.to_batched(y_all, size) |> Enum.to_list()
 
-data = %{
-  x_train: x_train,
-  x_validation: x_validation,
-  x_test: x_test,
-  y_train: y_train,
-  y_validation: y_validation,
-  y_test: y_test
-}
-```
-
-## Building a Neural Network with Axon
-
-### Prepare the data
-
-```elixir
-x_train = data.x_train
-x_validation = data.x_validation
-
 # One-hot encode the labels
-y_train = Nx.equal(data.y_train, Nx.tensor([0, 1]))
-y_validation = Nx.equal(data.y_validation, Nx.tensor([0, 1]))
+y_train = Nx.equal(y_train, Nx.tensor([0, 1]))
+y_validation = Nx.equal(y_validation, Nx.tensor([0, 1]))
 ```
+
+### Building a Neural Network with Axon
 
 ```elixir
 batch_size = 25
@@ -141,10 +127,12 @@ train_batches = Stream.zip(train_inputs, train_labels)
 
 validation_data = [{x_validation, y_validation}]
 
-# In the book, the epoch are 30_000, but
-# the training is taking way to long :/
-# https://github.com/elixir-nx/axon/issues/430
-epochs = 100
+epochs = 30_000
+
+# Set `eps` option in the RMSprop to prevent division by zero (NaN)
+# By deafult in Axon is 1.0e-8, I tried with 1.0e-7 (Keras default) and
+# it was still returning NaN.
+epsilon = 1.0e-4
 
 model =
   Axon.input("data")
@@ -163,9 +151,10 @@ output_transform = fn %Axon.Loop.State{step_state: step_state, metrics: metrics}
   %{params: step_state[:model_state], metrics: metrics}
 end
 
+# (~450 seconds with CPU)
 %{params: params, metrics: metrics} =
   model
-  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001))
+  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001, eps: epsilon))
   |> Axon.Loop.validate(model, validation_data)
   |> Map.update(:output_transform, nil, fn _original_output_transform ->
     fn state -> output_transform.(state) end
@@ -173,58 +162,20 @@ end
   |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
 ```
 
-### After 15_000 epochs
-
-Training the model for `30_000` epochs like in the book is taking way too long. I, therefore, let the model train for `15_000` epochs but in script rather than in the livebook.
-
-```
-# Batch: 0, loss: 0.3701987
-# Epoch: 14991, Batch: 8, loss: 0.1086228
-# Batch: 0, loss: 0.3702135
-
-# Batch: 0, loss: 0.3702284
-
-# Batch: 0, loss: 0.3702431
-
-# Batch: 0, loss: 0.3702582
-# Epoch: 14995, Batch: 10, loss: 0.1085962
-# Batch: 0, loss: 0.3702725
-
-# Batch: 0, loss: 0.3702877
-
-# Batch: 0, loss: 0.3703022
-
-# Batch: 0, loss: 0.3703174
-
-# Batch: 0, loss: 0.3703321
-# "TRAINING CONCLUDED IN 87 minutes."
-```
-
-👉 Training loss: 0.1085962
-👉 Validation loss: 0.3703321
-
-Let's plot the trends.
-
 ```elixir
 training_losses =
-  "./17_overfitting/losses_1"
-  |> File.read!()
-  |> String.split("\n")
-  |> Stream.with_index(1)
-  |> Stream.map(fn {loss, index} ->
-    %{loss: String.to_float(loss), epoch: index, type: "training"}
+  metrics
+  |> Enum.sort_by(fn {index, _metric} -> index end)
+  |> Enum.map(fn {index, %{"loss" => loss}} ->
+    %{loss: Nx.to_number(loss), epoch: index, type: "training"}
   end)
-  |> Enum.to_list()
 
 validation_losses =
-  "./17_overfitting/validation_losses_1"
-  |> File.read!()
-  |> String.split("\n")
-  |> Stream.with_index(1)
-  |> Stream.map(fn {loss, index} ->
-    %{loss: String.to_float(loss), epoch: index, type: "validation"}
+  metrics
+  |> Enum.sort_by(fn {index, _metric} -> index end)
+  |> Enum.map(fn {index, %{"validation_loss" => validation_loss}} ->
+    %{loss: Nx.to_number(validation_loss), epoch: index, type: "validation"}
   end)
-  |> Enum.to_list()
 ```
 
 <!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"line","color_field":"type","color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":"nominal","data_variable":"training_losses","x_field":"epoch","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"loss","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":"type","color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":"nominal","data_variable":"validation_losses","x_field":"epoch","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"loss","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
@@ -256,6 +207,6 @@ More details in [this post](https://elixirforum.com/t/how-to-apply-a-l1-l2-penal
 Interestingly enough, it was possible with a previous version of Axon, but then the feature has been removed for the following reasons:
 
 * It's not in PyTorch, and it didn't seem very commonly used in TensorFlow
-* Regularization is a concern of training/optimization and not the model, so I wanted to keep those decoupled
+* Regularization is a concern of training/optimization and not the model
 
 It is probably possible to achieve that by creating a custom training loop to apply L1/L2 regularization per-level. I tried but I couldn't manage to make it work 😞.

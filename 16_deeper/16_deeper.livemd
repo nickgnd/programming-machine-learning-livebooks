@@ -359,7 +359,7 @@ epsilon = 1.0e-4
 # (~450 seconds with CPU)
 new_params =
   new_model
-  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001, eps: 1.0e-4))
+  |> Axon.Loop.trainer(:categorical_cross_entropy, Axon.Optimizers.rmsprop(0.001, eps: epsilon))
   |> Axon.Loop.metric(:accuracy)
   |> Axon.Loop.validate(new_model, validation_data)
   |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
