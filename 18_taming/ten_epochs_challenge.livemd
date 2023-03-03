@@ -3,13 +3,13 @@
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.4"},
-    {:nx, "~> 0.4"},
-    {:axon, "~> 0.4"},
-    {:scidata, "~> 0.1"},
-    {:kino, "~> 0.8.0"},
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:axon, "~> 0.5"},
+    {:kino, "~> 0.8.1"},
     {:kino_vega_lite, "~> 0.1.7"},
-    {:vega_lite, "~> 0.1.6"}
+    {:vega_lite, "~> 0.1.6"},
+    {:scidata, "~> 0.1"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
@@ -118,15 +118,15 @@ model
 
 👆 With the "basic" model:
 
-* accuracy: 0.9379449; loss: 0.3848791
-* val. accuracy: 0.9132000; val.loss: 0.2732212
+* accuracy: 0.9384413; loss: 0.3782525
+* val. accuracy: 0.9130000; val.loss: 0.2655237
 
-It took ~360 seconds to train this model for 10 epochs
+It took ~450 seconds to train this model for 10 epochs
 
 ## Build and train the optimized model
 
 ```elixir
-epochs = 10
+epochs = 5
 
 model =
   Axon.input("data")
@@ -149,9 +149,7 @@ model
 |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
 ```
 
-👆 With the "optimized" model after 5 epochs I already got way better results:
+👆 With the "optimized" model we get better results already after 5 epochs:
 
-* accuracy: 0.9847211; loss: 0.1100348
-* val. accuracy: 0.9422000; val.loss: 0.2507100
-
-It took ~230 seconds to train this model for 5 epochs.
+* accuracy: 0.9847380; loss: 0.1109478
+* val. accuracy: 0.9386000; val.loss: 0.2847975
