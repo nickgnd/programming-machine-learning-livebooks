@@ -3,14 +3,14 @@
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.4"},
-    {:nx, "~> 0.4"},
-    {:nx_image, "~> 0.1.0"},
-    {:axon, "~> 0.4"},
-    {:scidata, "~> 0.1"},
-    {:kino, "~> 0.8.0"},
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
+    {:axon, "~> 0.5"},
+    {:kino, "~> 0.8.1"},
     {:kino_vega_lite, "~> 0.1.7"},
     {:vega_lite, "~> 0.1.6"},
+    {:scidata, "~> 0.1"},
+    {:nx_image, "~> 0.1.0"},
     {:table_rex, "~> 3.1.1"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
@@ -42,11 +42,16 @@ labels =
 columns = 8
 rows = 4
 
+key = Nx.Random.key(42)
+
 # Compute random indeces
 indices =
   {elem(images_shape, 0) - 1}
   |> Nx.iota()
-  |> Nx.shuffle()
+  |> then(fn data ->
+    {shuffled_data, _new_key} = Nx.Random.shuffle(key, data)
+    shuffled_data
+  end)
   |> Nx.slice_along_axis(0, columns * rows)
 
 selected_images = Nx.take(images, indices)
@@ -171,7 +176,7 @@ Training completed in 2250 seconds ca.
 Results after 25 epochs:
 
 * accuracy: 0.8000934 - loss: 1.0527945
-* validation accuracy: 0.4326000 - validation loss: 9.4311628
+* validation accuracy: 0.4242000 - validation loss: 5.1675453
 
 ## Running on Convolutions
 
@@ -281,12 +286,12 @@ model
 |> Axon.Loop.run(train_batches, %{}, epochs: epochs, compiler: EXLA)
 ```
 
-Training completed in 7800 seconds ca.
+Training completed in 8400 seconds ca.
 
 Results after 20 epochs:
 
-* accuracy: 0.8463038 - loss: 0.7997918
-* validation accuracy: 0.6678000 - validation loss: 1.2452867
+* accuracy: 0.8096849 - loss: 0.8324687
+* validation accuracy: 0.6632000 - validation loss: 1.5468998
 
 <!-- livebook:{"break_markdown":true} -->
 
@@ -317,7 +322,7 @@ I tried both the approaches and having the `channels` axis as last led to better
 | Channels position | training accuracy | validation accuracy |
 | ----------------- | ----------------- | ------------------- |
 | :first            | 0.7166188         | 0.6012000           |
-| :last             | 0.8463038         | 0.6678000           |
+| :last             | 0.8096849         | 0.6632000           |
 
 <!-- livebook:{"break_markdown":true} -->
 
