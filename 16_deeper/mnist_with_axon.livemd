@@ -3,14 +3,11 @@
 ```elixir
 Mix.install(
   [
-    {:exla, "~> 0.4"},
-    {:nx, "~> 0.4"},
-    # TODO: use next released version
-    # {:axon, "~> 0.3.1"},
-    {:axon, git: "https://github.com/elixir-nx/axon", branch: "main"},
-    {:kino, "~> 0.8.0"},
-    {:kino_vega_lite, "~> 0.1.7"},
+    {:exla, "~> 0.5"},
+    {:nx, "~> 0.5"},
     {:vega_lite, "~> 0.1.6"},
+    {:kino, "~> 0.8.1"},
+    {:kino_vega_lite, "~> 0.1.7"},
     {:table_rex, "~> 3.1.1"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
