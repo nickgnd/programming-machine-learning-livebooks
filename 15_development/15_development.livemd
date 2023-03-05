@@ -28,10 +28,12 @@ defmodule C15.MNISTStandardized do
 
   import Nx.Defn
 
-  @train_images_filename "./data/mnist/train-images-idx3-ubyte.gz"
-  @test_images_filename "./data/mnist/t10k-images-idx3-ubyte.gz"
-  @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
-  @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
+  @data_path Path.join(__DIR__, "../data/mnist") |> Path.expand()
+
+  @train_images_filename Path.join(@data_path, "train-images-idx3-ubyte.gz")
+  @test_images_filename Path.join(@data_path, "t10k-images-idx3-ubyte.gz")
+  @train_labels_filename Path.join(@data_path, "train-labels-idx1-ubyte.gz")
+  @test_labels_filename Path.join(@data_path, "t10k-labels-idx1-ubyte.gz")
 
   @type t :: %__MODULE__{
           x_train: Nx.Tensor.t(),

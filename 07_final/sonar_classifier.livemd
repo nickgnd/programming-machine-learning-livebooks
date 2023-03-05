@@ -24,7 +24,9 @@ defmodule C7.SonarDataset do
   The documentation of the dataset can be found in the `sonar.names` file.
   """
 
-  @sonar_all_data_filename "./data/sonar/sonar.all-data"
+  @data_path Path.join(__DIR__, "../data/sonar") |> Path.expand()
+
+  @sonar_all_data_filename Path.join(@data_path, "sonar.all-data")
 
   defstruct [:x_train, :x_test, :y_train, :y_test]
 

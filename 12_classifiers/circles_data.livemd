@@ -16,7 +16,7 @@ Mix.install(
 ## Load the Data
 
 ```elixir
-filepath = "./12_classifiers/circles.txt"
+filepath = Path.join(__DIR__, "./circles.txt") |> Path.expand()
 
 [head | data] =
   filepath

@@ -161,10 +161,15 @@ end
 ## Read the data
 
 ```elixir
+file =
+  __DIR__
+  |> Path.join("police.txt")
+  |> Path.expand()
+
 # Read the data from the file, remove the header and return
 # `[%{reservations: integer(), temperature: integer(), tourists: integer(), police: integer()}]`
 data =
-  File.read!("05_discerning/police.txt")
+  File.read!(file)
   |> String.split("\n", trim: true)
   |> Enum.slice(1..-1)
   |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))

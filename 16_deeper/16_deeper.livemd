@@ -21,7 +21,9 @@ Mix.install(
 defmodule C16.EchidnaDataset do
   import Nx.Defn
 
-  @filename Path.join(["data", "echidna.txt"])
+  @data_path Path.join(__DIR__, "../data") |> Path.expand()
+
+  @filename Path.join(@data_path, "echidna.txt")
 
   @doc """
   Loads the echidna dataset and returns the input `x` and label `y` tensors.

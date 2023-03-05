@@ -16,7 +16,7 @@ Mix.install(
 ## Load the Data
 
 ```elixir
-filepath = "./12_classifiers/non_linearly_separable.txt"
+filepath = Path.join(__DIR__, "./non_linearly_separable.txt") |> Path.expand()
 
 [head | data] =
   filepath

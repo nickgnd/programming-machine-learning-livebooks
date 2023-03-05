@@ -23,10 +23,12 @@ defmodule C10.MNIST do
   MNIST dataset specifications can be found here: http://yann.lecun.com/exdb/mnist/
   """
 
-  @train_images_filename "./data/mnist/train-images-idx3-ubyte.gz"
-  @test_images_filename "./data/mnist/t10k-images-idx3-ubyte.gz"
-  @train_labels_filename "./data/mnist/train-labels-idx1-ubyte.gz"
-  @test_labels_filename "./data/mnist/t10k-labels-idx1-ubyte.gz"
+  @data_path Path.join(__DIR__, "../data/mnist") |> Path.expand()
+
+  @train_images_filename Path.join(@data_path, "train-images-idx3-ubyte.gz")
+  @test_images_filename Path.join(@data_path, "t10k-images-idx3-ubyte.gz")
+  @train_labels_filename Path.join(@data_path, "train-labels-idx1-ubyte.gz")
+  @test_labels_filename Path.join(@data_path, "t10k-labels-idx1-ubyte.gz")
 
   defstruct [:x_train, :x_test, :y_train, :y_test]
 
@@ -252,7 +254,9 @@ end
 
 ```elixir
 [weight1, weight2] =
-  File.read!("./10_building/weights.json")
+  Path.join(__DIR__, "./weights.json")
+  |> Path.expand()
+  |> File.read!()
   |> Jason.decode!()
   |> Enum.map(&Nx.tensor/1)
 

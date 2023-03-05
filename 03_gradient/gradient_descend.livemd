@@ -11,10 +11,16 @@ Mix.install([
 ## Read the data
 
 ```elixir
+file =
+  __DIR__
+  |> Path.join("pizza.txt")
+  |> Path.expand()
+
 # Read the data from the file, remove the header and return
 # `[%{reservations: integer(), pizzas: integer()}]`
 data =
-  File.read!("./03_gradient/pizza.txt")
+  file
+  |> File.read!()
   |> String.split("\n", trim: true)
   |> Enum.slice(1..-1)
   |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
