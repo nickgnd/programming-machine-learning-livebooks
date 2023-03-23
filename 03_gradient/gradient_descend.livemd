@@ -99,7 +99,7 @@ end
 ```elixir
 alias VegaLite, as: Vl
 
-# Generate a sequence that will be used as `weigth`
+# Generate a sequence that will be used as `weight`
 # From -1 to -4, step 0.01
 weights = Enum.map(-100..400, &(&1 / 100))
 
@@ -149,7 +149,7 @@ defmodule C3.LinearRegressionWithoutBias do
   end
 
   @doc """
-  Returns the derivate of the loss curve
+  Returns the derivative of the loss curve
   """
   def gradient(x, y, weight) do
     predictions = predict(x, weight, 0)
@@ -213,7 +213,7 @@ defmodule C3.LinearRegressionWithBias do
   end
 
   @doc """
-  Returns the derivate of the loss curve
+  Returns the derivative of the loss curve
   """
   def gradient(x, y, weight, bias) do
     predictions = predict(x, weight, bias)

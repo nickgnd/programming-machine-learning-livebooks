@@ -185,7 +185,7 @@ weight = C12.Perceptron.train(x_train, y_train, x_test, y_test, iterations, lr)
 
 The idea:
 
-* Generate a grid of points and use the min/max values from the inital dataset to compute the boundaries.
+* Generate a grid of points and use the min/max values from the initial dataset to compute the boundaries.
 * Classify each point using the weight computed before with the initial dataset
 * Plot the result highlighting the "decision boundary"
 
@@ -200,7 +200,7 @@ y =
   x_train
   |> Nx.slice_along_axis(2, 1, axis: 1)
 
-# Compute the grid bounderies 
+# Compute the grid boundaries 
 x_min =
   x
   |> Nx.to_flat_list()
@@ -223,7 +223,7 @@ y_max =
 
 padding = 0.05
 
-bounderies = %{
+boundaries = %{
   x_min: x_min - abs(x_min * padding),
   x_max: x_max + abs(x_max * padding),
   y_min: y_min - abs(y_min * padding),

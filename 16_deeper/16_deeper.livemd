@@ -80,7 +80,7 @@ defmodule C16.EchidnaDataset do
 
     # After MinMaxScaling, the distributions are not centered
     # at zero and the standard deviation is not 1.
-    # Thefore, subtract 0.5 to rescale data between -0.5 and 0.5
+    # Therefore, subtract 0.5 to rescale data between -0.5 and 0.5
     (x_raw - min) / (max - min) - 0.5
   end
 
@@ -287,7 +287,7 @@ defmodule C16.Plotter do
     # Get y from the tensor
     y = Nx.slice_along_axis(inputs, 2, 1, axis: 1)
 
-    # Compute the grid bounderies 
+    # Compute the grid boundaries 
     x_min = x |> Nx.to_flat_list() |> Enum.min()
     x_max = x |> Nx.to_flat_list() |> Enum.max()
     y_min = y |> Nx.to_flat_list() |> Enum.min()
@@ -354,7 +354,7 @@ Axon.Display.as_graph(new_model, template)
 # epochs are defined in the previous model's training
 
 # Set `eps` option in the RMSprop to prevent division by zero (NaN)
-# By deafult in Axon is 1.0e-8, I tried with 1.0e-7 (Keras default) and
+# By default in Axon is 1.0e-8, I tried with 1.0e-7 (Keras default) and
 # it was still returning NaN.
 epsilon = 1.0e-4
 
