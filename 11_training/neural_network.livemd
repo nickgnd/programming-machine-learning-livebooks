@@ -207,7 +207,7 @@ defmodule C11.Classifier do
 
   Each element in the tensors is now constrained between 0 and 1,
   but the activation functions used for `h` and `y_hat` are
-  differents:
+  different:
   - `sigmoid` for the hidden layer `h`
   - `softmax` for the prediction tensor `y_hat`
 

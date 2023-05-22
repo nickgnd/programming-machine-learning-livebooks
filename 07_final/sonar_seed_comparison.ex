@@ -183,7 +183,7 @@ defmodule C7.Classifier do
   end
 
   @doc """
-  Returns the derivate of the loss curve.
+  Returns the derivative of the loss curve.
   """
   @spec gradient(Nx.Tensor.t(), Nx.Tensor.t(), Nx.Tensor.t()) :: Nx.Tensor.t()
   defn gradient(x, y, weight) do

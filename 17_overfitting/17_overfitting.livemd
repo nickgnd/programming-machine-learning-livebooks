@@ -83,7 +83,7 @@ defmodule C17.EchidnaDataset do
 
     # After MinMaxScaling, the distributions are not centered
     # at zero and the standard deviation is not 1.
-    # Thefore, subtract 0.5 to rescale data between -0.5 and 0.5
+    # Therefore, subtract 0.5 to rescale data between -0.5 and 0.5
     (x_raw - min) / (max - min) - 0.5
   end
 
@@ -132,7 +132,7 @@ validation_data = [{x_validation, y_validation}]
 epochs = 30_000
 
 # Set `eps` option in the RMSprop to prevent division by zero (NaN)
-# By deafult in Axon is 1.0e-8, I tried with 1.0e-7 (Keras default) and
+# By default in Axon is 1.0e-8, I tried with 1.0e-7 (Keras default) and
 # it was still returning NaN.
 epsilon = 1.0e-4
 

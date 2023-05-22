@@ -52,7 +52,7 @@ If you want to launch Livebook via Docker:
 
 ### Differences between Livebook an Jupyter books
 
-* I could replicate all the different Jupyter books in Elixir with Livebook/Nx/Axon, apart from the 2nd section of Chapter 17, where the book introduces L1/L2 regularization tecniques and these are not supported by [Axon](https://github.com/elixir-nx/axon) out of the box (more details in the corresponding Livebook).
+* I could replicate all the different Jupyter books in Elixir with Livebook/Nx/Axon, apart from the 2nd section of Chapter 17, where the book introduces L1/L2 regularization techniques and these are not supported by [Axon](https://github.com/elixir-nx/axon) out of the box (more details in the corresponding Livebook).
 
 ### Code Style
 

@@ -102,7 +102,7 @@ defmodule C5.Classifier do
   end
 
   @doc """
-  Returns the derivate of the loss curve.
+  Returns the derivative of the loss curve.
   """
   defn gradient(x, y, weight) do
     # in python:
