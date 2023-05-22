@@ -239,12 +239,12 @@ boundaries = %{
 # Define the grid of data that will be classified
 
 resolution = 200
-x_step = (x_max - x_min) / resolution
-y_step = (y_max - y_min) / resolution
+x_step = (boundaries.x_max - boundaries.x_min) / resolution
+y_step = (boundaries.y_max - boundaries.y_min) / resolution
 
 grid =
-  for i <- 0..resolution, j <- 0..resolution do
-    [x_min + x_step * i, y_min + y_step * j]
+  for i <- 0..(resolution - 1), j <- 0..(resolution - 1) do
+    [boundaries.x_min + x_step * i, boundaries.y_min + y_step * j]
   end
 ```
 
@@ -515,12 +515,12 @@ boundaries = %{
 # Define the grid of data that will be classified
 
 resolution = 200
-x_step = (x_max - x_min) / resolution
-y_step = (y_max - y_min) / resolution
+x_step = (boundaries.x_max - boundaries.x_min) / resolution
+y_step = (boundaries.y_max - boundaries.y_min) / resolution
 
 grid =
-  for i <- 0..resolution, j <- 0..resolution do
-    [x_min + x_step * i, y_min + y_step * j]
+  for i <- 0..(resolution - 1), j <- 0..(resolution - 1) do
+    [boundaries.x_min + x_step * i, boundaries.y_min + y_step * j]
   end
 ```
 
