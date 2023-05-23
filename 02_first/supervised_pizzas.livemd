@@ -74,15 +74,15 @@ defmodule C2.LinearRegression do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, 0, fn i, w ->
+    Enum.reduce_while(0..iterations, 0, fn i, w ->
       current_loss = loss(x, y, w)
 
       IO.puts("Iteration #{i} => Loss: #{current_loss}")
 
       cond do
-        loss(x, y, w + lr) < current_loss -> w + lr
-        loss(x, y, w - lr) < current_loss -> w - lr
-        true -> w
+        loss(x, y, w + lr) < current_loss -> {:cont, w + lr}
+        loss(x, y, w - lr) < current_loss -> {:cont, w - lr}
+        true -> {:halt, w}
       end
     end)
   end
@@ -185,17 +185,17 @@ defmodule C2.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
+    Enum.reduce_while(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
       current_loss = loss(x, y, w, b)
 
       IO.puts("Iteration #{i} => Loss: #{current_loss}")
 
       cond do
-        loss(x, y, w + lr, b) < current_loss -> %{acc | weight: w + lr}
-        loss(x, y, w - lr, b) < current_loss -> %{acc | weight: w - lr}
-        loss(x, y, w, b + lr) < current_loss -> %{acc | bias: b + lr}
-        loss(x, y, w, b - lr) < current_loss -> %{acc | bias: b - lr}
-        true -> acc
+        loss(x, y, w + lr, b) < current_loss -> {:cont, %{acc | weight: w + lr}}
+        loss(x, y, w - lr, b) < current_loss -> {:cont, %{acc | weight: w - lr}}
+        loss(x, y, w, b + lr) < current_loss -> {:cont, %{acc | bias: b + lr}}
+        loss(x, y, w, b - lr) < current_loss -> {:cont, %{acc | bias: b - lr}}
+        true -> {:halt, acc}
       end
     end)
   end
