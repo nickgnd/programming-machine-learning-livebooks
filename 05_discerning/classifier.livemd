@@ -123,7 +123,7 @@ defmodule C5.Classifier do
   over the examples the specified number of times.
   """
   def train(x, y, iterations, lr) do
-    Enum.reduce(0..iterations, init_weight(x), fn i, weight ->
+    Enum.reduce(0..(iterations - 1), init_weight(x), fn i, weight ->
       IO.inspect("Iteration #{i} => Loss: #{Nx.to_number(loss(x, y, weight))}")
 
       step(x, y, weight, lr)

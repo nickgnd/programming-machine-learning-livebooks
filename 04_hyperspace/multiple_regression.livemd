@@ -134,7 +134,7 @@ defmodule C4.MultipleLinearRegression do
   over the examples the specified number of times.
   """
   def train(x, y, iterations, lr) do
-    Enum.reduce(0..iterations, init_weight(x), fn i, weight ->
+    Enum.reduce(0..(iterations - 1), init_weight(x), fn i, weight ->
       current_loss = loss(x, y, weight) |> Nx.to_number()
       IO.puts("Iteration #{i} => Loss: #{current_loss}")
       Nx.subtract(weight, Nx.multiply(gradient(x, y, weight), lr))

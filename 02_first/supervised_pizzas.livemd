@@ -74,7 +74,7 @@ defmodule C2.LinearRegression do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce_while(0..iterations, 0, fn i, w ->
+    Enum.reduce_while(0..(iterations - 1), 0, fn i, w ->
       current_loss = loss(x, y, w)
 
       IO.puts("Iteration #{i} => Loss: #{current_loss}")
@@ -185,7 +185,8 @@ defmodule C2.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce_while(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
+    Enum.reduce_while(0..(iterations - 1), %{weight: 0, bias: 0}, fn i,
+                                                                     %{weight: w, bias: b} = acc ->
       current_loss = loss(x, y, w, b)
 
       IO.puts("Iteration #{i} => Loss: #{current_loss}")

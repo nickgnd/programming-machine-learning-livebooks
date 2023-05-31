@@ -60,7 +60,7 @@ defmodule C2.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
+    Enum.reduce(0..(iterations - 1), %{weight: 0, bias: 0}, fn i, %{weight: w, bias: b} = acc ->
       current_loss = loss(x, y, w, b)
 
       IO.puts("Iteration #{i} => Loss: #{current_loss}")
@@ -158,7 +158,7 @@ defmodule C3.LinearRegressionWithoutBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, 0, fn i, weight ->
+    Enum.reduce(0..(iterations - 1), 0, fn i, weight ->
       IO.puts("Iteration #{i} => Loss: #{loss(x, y, weight, 0)}")
       weight - gradient(x, y, weight) * lr
     end)
@@ -226,7 +226,7 @@ defmodule C3.LinearRegressionWithBias do
   end
 
   def train(x, y, iterations, lr) when is_list(x) and is_list(y) do
-    Enum.reduce(0..iterations, %{weight: 0, bias: 0}, fn i, %{weight: weight, bias: bias} ->
+    Enum.reduce(0..(iterations - 1), %{weight: 0, bias: 0}, fn i, %{weight: weight, bias: bias} ->
       IO.puts("Iteration #{i} => Loss: #{loss(x, y, weight, bias)}")
 
       {w_gradient, b_gradient} = gradient(x, y, weight, bias)
