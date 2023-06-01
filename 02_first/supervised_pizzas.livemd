@@ -4,7 +4,9 @@
 Mix.install([
   {:vega_lite, "~> 0.1.6"},
   {:kino, "~> 0.8.1"},
-  {:kino_vega_lite, "~> 0.1.7"}
+  {:kino_vega_lite, "~> 0.1.7"},
+  {:explorer, "~> 0.5.6"},
+  {:kino_explorer, "~> 0.1.4"}
 ])
 ```
 
@@ -13,36 +15,26 @@ Mix.install([
 ### Read the data
 
 ```elixir
-file =
+data =
   __DIR__
   |> Path.join("pizza.txt")
   |> Path.expand()
-
-# Read the data from the file, remove the header and return
-# `[%{reservations: integer(), pizzas: integer()}]`
-data =
-  file
   |> File.read!()
-  |> String.split("\n", trim: true)
-  |> Enum.slice(1..-1)
-  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
-  |> Enum.map(fn [r, p] ->
-    %{reservations: String.to_integer(r), pizzas: String.to_integer(p)}
-  end)
-
-Kino.DataTable.new(data)
+  # convert any two or more spaces into a comma
+  |> String.replace(~r/[[:blank:]]{2,}/, ",")
+  |> Explorer.DataFrame.load_csv!()
 ```
 
 ### Plot the data
 
-<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"active":true,"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","geodata_color":"blue","latitude_field":null,"longitude_field":null,"x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
 
 ```elixir
 VegaLite.new(width: 600, height: 400)
-|> VegaLite.data_from_values(data, only: ["reservations", "pizzas"])
+|> VegaLite.data_from_values(data, only: ["Reservations", "Pizzas"])
 |> VegaLite.mark(:point)
-|> VegaLite.encode_field(:x, "reservations", type: :quantitative)
-|> VegaLite.encode_field(:y, "pizzas", type: :quantitative)
+|> VegaLite.encode_field(:x, "Reservations", type: :quantitative)
+|> VegaLite.encode_field(:y, "Pizzas", type: :quantitative)
 ```
 
 ## Tracing a Line
@@ -100,15 +92,6 @@ end
 ### Train the system
 
 ```elixir
-# Transform the data to unpack the 2 columns `reservations` and
-# `pizzas` into separate arrays called x and y
-%{x: x, y: y} =
-  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
-    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
-  end)
-```
-
-```elixir
 iterations = Kino.Input.number("iterations", default: 10_000)
 ```
 
@@ -119,6 +102,10 @@ lr = Kino.Input.number("lr (learning rate)", default: 0.01)
 ```elixir
 iterations = Kino.Input.read(iterations)
 lr = Kino.Input.read(lr)
+
+# Extract "Reservations" and "Pizzas" from the dataframe
+x = Explorer.Series.to_list(data["Reservations"])
+y = Explorer.Series.to_list(data["Pizzas"])
 
 w = C2.LinearRegression.train(x, y, iterations = iterations, lr = lr)
 ```
@@ -138,7 +125,7 @@ predictions =
   end)
 ```
 
-<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"predictions","x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"active":true,"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","geodata_color":"blue","latitude_field":null,"longitude_field":null,"x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"active":true,"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"predictions","geodata_color":"blue","latitude_field":null,"longitude_field":null,"x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
 
 ```elixir
 VegaLite.new(width: 600, height: 400)
@@ -250,7 +237,7 @@ predictions =
   end)
 ```
 
-<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"predictions","x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+<!-- livebook:{"attrs":{"chart_title":null,"height":400,"layers":[{"active":true,"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","geodata_color":"blue","latitude_field":null,"longitude_field":null,"x_field":"reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"active":true,"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"predictions","geodata_color":"blue","latitude_field":null,"longitude_field":null,"x_field":"x","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":600},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
 
 ```elixir
 VegaLite.new(width: 600, height: 400)
