@@ -7,7 +7,9 @@ Mix.install(
     {:nx, "~> 0.5"},
     {:vega_lite, "~> 0.1.6"},
     {:kino, "~> 0.8.1"},
-    {:kino_vega_lite, "~> 0.1.7"}
+    {:kino_vega_lite, "~> 0.1.7"},
+    {:explorer, "~> 0.5.6"},
+    {:kino_explorer, "~> 0.1.4"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
@@ -161,58 +163,35 @@ end
 ## Read the data
 
 ```elixir
-file =
+data =
   __DIR__
   |> Path.join("police.txt")
   |> Path.expand()
-
-# Read the data from the file, remove the header and return
-# `[%{reservations: integer(), temperature: integer(), tourists: integer(), police: integer()}]`
-data =
-  File.read!(file)
-  |> String.split("\n", trim: true)
-  |> Enum.slice(1..-1)
-  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
-  |> Enum.map(fn [r, temp, tour, p] ->
-    %{
-      reservations: String.to_integer(r),
-      temperature: String.to_integer(temp),
-      tourists: String.to_integer(tour),
-      police: String.to_integer(p)
-    }
-  end)
-
-Kino.DataTable.new(data, keys: [:reservations, :temperature, :tourists, :police])
+  |> File.read!()
+  # convert any two or more spaces into a comma
+  |> String.replace(~r/[[:blank:]]{2,}/, ",")
+  |> Explorer.DataFrame.load_csv!()
 ```
 
 ### Prepare the data
 
 ```elixir
-# Transform the data to unpack the 4 columns `reservations`,
-# `temperature`, `tourists` and `police` into separate arrays
-# called x1, x2, x3 and y
-%{x1: x1, x2: x2, x3: x3, y: y} =
-  Enum.reduce(data, %{x1: [], x2: [], x3: [], y: []}, fn item, %{x1: x1, x2: x2, x3: x3, y: y} ->
-    %{
-      x1: x1 ++ [item.reservations],
-      x2: x2 ++ [item.temperature],
-      x3: x3 ++ [item.tourists],
-      y: y ++ [item.police]
-    }
-  end)
-```
+inputs =
+  data
+  |> Explorer.DataFrame.select(["Reservations", "Temperature", "Tourists"])
+  |> Nx.stack(axis: 1)
 
-```elixir
-# bias
-x0 = List.duplicate(1, length(x1))
+bias = Nx.broadcast(1, {elem(Nx.shape(inputs), 0), 1})
 
-x =
-  [x0, x1, x2, x3]
+# append the bias to the inputs
+x = Nx.concatenate([bias, inputs], axis: 1)
+
+y =
+  data["Police"]
+  |> Explorer.Series.to_list()
   |> Nx.tensor()
-  |> Nx.transpose()
-
-# Same of `y.reshape(-1, 1)` used in the book
-y = Nx.tensor(y) |> Nx.reshape({:auto, 1})
+  # Same of `y.reshape(-1, 1)` used in the book
+  |> Nx.reshape({:auto, 1})
 ```
 
 ### Our new model
@@ -222,18 +201,22 @@ Plot of the `forward()` function.
 ```elixir
 alias VegaLite, as: Vl
 
-reservations_tensor = Nx.tensor([x0, x1]) |> Nx.transpose()
+# bias and reservations
+reservations_tensor_with_bias = x[[.., 0..1]]
 
 # It can take a bit of time
-weight = C5.Classifier.train(reservations_tensor, y, iterations = 1_000_000, lr = 0.01)
+weight = C5.Classifier.train(reservations_tensor_with_bias, y, iterations = 1_000_000, lr = 0.01)
 
-predictions = C5.Classifier.forward(reservations_tensor, weight)
-rounded_predictions = C5.Classifier.classify(reservations_tensor, weight)
+predictions = C5.Classifier.forward(reservations_tensor_with_bias, weight)
+rounded_predictions = C5.Classifier.classify(reservations_tensor_with_bias, weight)
 
 :ok
 ```
 
 ```elixir
+# extract the reservations from the tensor
+x1 = x[[.., 1]] |> Nx.to_list()
+
 Vl.new(width: 600, height: 400, title: "Model - forward()")
 |> Vl.layers([
   Vl.new()
