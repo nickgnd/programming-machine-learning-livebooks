@@ -4,29 +4,23 @@
 Mix.install([
   {:vega_lite, "~> 0.1.6"},
   {:kino, "~> 0.8.1"},
-  {:kino_vega_lite, "~> 0.1.7"}
+  {:kino_vega_lite, "~> 0.1.7"},
+  {:explorer, "~> 0.5.6"},
+  {:kino_explorer, "~> 0.1.4"}
 ])
 ```
 
 ## Read the data
 
 ```elixir
-file =
+data =
   __DIR__
   |> Path.join("pizza.txt")
   |> Path.expand()
-
-# Read the data from the file, remove the header and return
-# `[%{reservations: integer(), pizzas: integer()}]`
-data =
-  file
   |> File.read!()
-  |> String.split("\n", trim: true)
-  |> Enum.slice(1..-1)
-  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
-  |> Enum.map(fn [r, p] -> %{reservations: String.to_integer(r), pizzas: String.to_integer(p)} end)
-
-Kino.DataTable.new(data)
+  # convert any two or more spaces into a comma
+  |> String.replace(~r/[[:blank:]]{2,}/, ",")
+  |> Explorer.DataFrame.load_csv!()
 ```
 
 ## Linear regression with bias
@@ -88,12 +82,9 @@ end
 ### Plot the loss curve
 
 ```elixir
-# Transform the data to unpack the 2 columns `reservations` and
-# `pizzas` into separate arrays called x and y
-%{x: x, y: y} =
-  Enum.reduce(data, %{x: [], y: []}, fn item, %{x: x, y: y} ->
-    %{x: x ++ [item.reservations], y: y ++ [item.pizzas]}
-  end)
+# Extract "Reservations" and "Pizzas" from the dataframe
+x = Explorer.Series.to_list(data["Reservations"])
+y = Explorer.Series.to_list(data["Pizzas"])
 ```
 
 ```elixir

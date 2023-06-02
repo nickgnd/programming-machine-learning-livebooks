@@ -7,7 +7,9 @@ Mix.install(
     {:nx, "~> 0.5"},
     {:vega_lite, "~> 0.1.6"},
     {:kino, "~> 0.8.1"},
-    {:kino_vega_lite, "~> 0.1.7"}
+    {:kino_vega_lite, "~> 0.1.7"},
+    {:explorer, "~> 0.5.6"},
+    {:kino_explorer, "~> 0.1.4"}
   ],
   config: [nx: [default_backend: EXLA.Backend]]
 )
@@ -18,43 +20,23 @@ Mix.install(
 ### Preparing Data
 
 ```elixir
-file =
+data =
   __DIR__
   |> Path.join("pizza_3_vars.txt")
   |> Path.expand()
-
-# Read the data from the file, remove the header and return
-# `[%{reservations: integer(), temperature: integer(), tourists: integer(), pizzas: integer()}]`
-data =
-  File.read!(file)
-  |> String.split("\n", trim: true)
-  |> Enum.slice(1..-1)
-  |> Enum.map(&String.split(&1, ~r{\s+}, trim: true))
-  |> Enum.map(fn [r, temp, tour, p] ->
-    %{
-      reservations: String.to_integer(r),
-      temperature: String.to_integer(temp),
-      tourists: String.to_integer(tour),
-      pizzas: String.to_integer(p)
-    }
-  end)
-
-Kino.DataTable.new(data, keys: [:reservations, :temperature, :tourists, :pizzas])
+  |> File.read!()
+  # convert any two or more spaces into a comma
+  |> String.replace(~r/[[:blank:]]{2,}/, ",")
+  |> Explorer.DataFrame.load_csv!()
 ```
 
 ```elixir
-# Transform the data to unpack the 4 columns `reservations`,
-# `temperature`, `tourists` and `pizzas` into separate arrays
-# called x1, x2, x3 and y
-%{x1: x1, x2: x2, x3: x3, y: y} =
-  Enum.reduce(data, %{x1: [], x2: [], x3: [], y: []}, fn item, %{x1: x1, x2: x2, x3: x3, y: y} ->
-    %{
-      x1: x1 ++ [item.reservations],
-      x2: x2 ++ [item.temperature],
-      x3: x3 ++ [item.tourists],
-      y: y ++ [item.pizzas]
-    }
-  end)
+# Extract "Reservations", "Temperature", "Tourists" and "Pizzas"
+# respectively as x1, x2, x3, y from the dataframe
+x1 = Explorer.Series.to_list(data["Reservations"])
+x2 = Explorer.Series.to_list(data["Temperature"])
+x3 = Explorer.Series.to_list(data["Tourists"])
+y = Explorer.Series.to_list(data["Pizzas"])
 ```
 
 ### Let's build the matrix x for input variables
